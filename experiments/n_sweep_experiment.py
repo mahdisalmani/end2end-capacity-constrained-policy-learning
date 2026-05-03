@@ -145,6 +145,10 @@ def parse_args():
     p.add_argument("--train-seed", type=int, default=1)
     p.add_argument("--out-csv", type=str, default="results/n_sweep.csv")
     p.add_argument("--out-png", type=str, default="results/n_sweep.png")
+    p.add_argument(
+        "--methods", type=str, nargs="+", default=None,
+        help="Subset of method names to include (default: all trained).",
+    )
     return p.parse_args()
 
 
@@ -173,7 +177,14 @@ def main():
             T=T, D=D, TAU=TAU, B=B,
             steps=args.steps, lr=args.lr, seed=args.train_seed,
         )
-        print(f"[N={N}] train wall: {time.time() - t_train_0:.1f}s")
+        if args.methods is not None:
+            missing = [m for m in args.methods if m not in policies]
+            if missing:
+                raise ValueError(f"Unknown methods: {missing}. "
+                                 f"Available: {list(policies)}")
+            policies = {m: policies[m] for m in args.methods}
+        print(f"[N={N}] train wall: {time.time() - t_train_0:.1f}s, "
+              f"methods: {list(policies)}")
 
         for sim_seed in range(args.num_sim_seeds):
             people_t, person_idx, T_max, resource_t = make_streams(
@@ -243,11 +254,14 @@ def main():
         out_dir = os.path.dirname(args.out_png)
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
-        method_order = (
-            ["random", "oracle_greedy_no_cap", "F"]
-            + [f"S2-{m}" for m in S2_METHODS]
-        )
-        methods_present = [m for m in method_order if m in agg["method"].values]
+        if args.methods is not None:
+            methods_present = [m for m in args.methods if m in agg["method"].values]
+        else:
+            method_order = (
+                ["random", "oracle_greedy_no_cap", "F"]
+                + [f"S2-{m}" for m in S2_METHODS]
+            )
+            methods_present = [m for m in method_order if m in agg["method"].values]
         plot_results(agg, methods_present, args.out_png)
 
 
