@@ -94,26 +94,41 @@ def train_policies_no_G(train_data, eval_data, T, D, TAU, B, steps, lr, seed):
 
 
 def plot_results(agg, methods, out_png):
-    metrics = [
-        ("total_wait_mean", "Total wait (sum across N_sim)", True),
-        ("mean_wait_served_mean", "Mean wait | served", True),
-        ("oracle_served_mean", "Mean oracle outcome | served", False),
-        ("frac_unserved_mean", "Fraction unserved", False),
-    ]
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
-    for ax, (col, label, log) in zip(axes.flat, metrics):
-        for m in methods:
-            sub = agg[agg["method"] == m].sort_values("N")
-            ax.plot(sub["N"], sub[col], marker="o", label=m)
-        ax.set_xlabel("N (train size)")
-        ax.set_ylabel(label)
-        if log:
-            ax.set_yscale("log")
-        ax.set_title(label)
-        ax.grid(True, alpha=0.3)
-    axes[0, 0].legend(loc="best", fontsize=8, ncol=2)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+    ax = axes[0]
+    for m in methods:
+        sub = agg[agg["method"] == m].sort_values("N")
+        ax.plot(sub["N"], sub["mean_wait_served_mean"], marker="o", label=m)
+    ax.set_xlabel("N (training size)")
+    ax.set_ylabel("Mean wait time (served)")
+    ax.set_yscale("log")
+    ax.set_title("Mean wait time vs N")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend(loc="best", fontsize=8, ncol=2)
+
+    ax = axes[1]
+    for m in methods:
+        sub = agg[agg["method"] == m].sort_values("N")
+        ax.plot(sub["N"], sub["oracle_served_mean"], marker="o", label=m)
+    ax.set_xlabel("N (training size)")
+    ax.set_ylabel("Mean oracle outcome (served)")
+    ax.set_title("Oracle outcome vs N")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best", fontsize=8, ncol=2)
+
+    ax = axes[2]
+    for m in methods:
+        sub = agg[agg["method"] == m].sort_values("N")
+        ax.plot(sub["N"], 100.0 * sub["frac_unserved_mean"], marker="o", label=m)
+    ax.set_xlabel("N (training size)")
+    ax.set_ylabel("Unserved (%)")
+    ax.set_title("Unserved fraction vs N")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best", fontsize=8, ncol=2)
+
     fig.suptitle("Real-queue performance vs training size N (G omitted)")
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(out_png, dpi=130)
     print(f"[plot] wrote {out_png}")
 
@@ -176,25 +191,45 @@ def main():
                 row["N"] = int(N)
                 rows.append(row)
                 print(f"  N={N:5d}  seed={sim_seed}  {method:25s}  "
-                      f"total_wait={row['total_wait']:10.2f}  "
-                      f"oracle={row['mean_oracle_outcome_served']: .4f}  "
+                      f"mean_wait_served={row['mean_wait_served']:9.2f}  "
+                      f"oracle_served={row['mean_oracle_outcome_served']: .4f}  "
                       f"unserved={row['frac_unserved']:6.2%}")
 
     df = pd.DataFrame(rows)
 
     agg = df.groupby(["N", "method"]).agg(
-        total_wait_mean=("total_wait", "mean"),
         mean_wait_served_mean=("mean_wait_served", "mean"),
         oracle_served_mean=("mean_oracle_outcome_served", "mean"),
         frac_unserved_mean=("frac_unserved", "mean"),
     ).reset_index()
 
+    wait_pivot = agg.pivot(index="N", columns="method",
+                           values="mean_wait_served_mean").sort_index()
+    oracle_pivot = agg.pivot(index="N", columns="method",
+                             values="oracle_served_mean").sort_index()
+    unserved_pivot = (
+        100.0 * agg.pivot(index="N", columns="method",
+                          values="frac_unserved_mean")
+    ).sort_index()
+
     print("\n" + "=" * 100)
-    print("N-SWEEP SUMMARY (mean across sim_seeds)")
+    print("N-SWEEP: mean wait time (served), averaged over sim_seeds")
     print("=" * 100)
-    with pd.option_context("display.float_format", lambda x: f"{x: .4f}",
+    with pd.option_context("display.float_format", lambda x: f"{x:10.2f}",
                            "display.width", 200):
-        print(agg.to_string(index=False))
+        print(wait_pivot.to_string())
+    print("=" * 100)
+    print("N-SWEEP: mean oracle outcome (served), averaged over sim_seeds")
+    print("=" * 100)
+    with pd.option_context("display.float_format", lambda x: f"{x:8.4f}",
+                           "display.width", 200):
+        print(oracle_pivot.to_string())
+    print("=" * 100)
+    print("N-SWEEP: unserved (%), averaged over sim_seeds")
+    print("=" * 100)
+    with pd.option_context("display.float_format", lambda x: f"{x:7.2f}",
+                           "display.width", 200):
+        print(unserved_pivot.to_string())
     print("=" * 100)
 
     if args.out_csv:
