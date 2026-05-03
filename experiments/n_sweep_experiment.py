@@ -91,19 +91,21 @@ def _gen(N, seed, D, T):
     )
 
 
-def train_policies_no_G(train_data, eval_data, T, D, TAU, B, steps, lr, seed):
+def train_policies_no_G(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
+                        f_tau=None):
     policies = {}
     policies["random"] = make_random_assigner(T)
     policies["oracle_greedy_no_cap"] = make_oracle_greedy_assigner(eval_data)
 
-    print("[train] F (implicit diff)")
+    f_tau_use = TAU if f_tau is None else float(f_tau)
+    print(f"[train] F (implicit diff)  tau={f_tau_use}")
     model_F, mu_F, _ = train_GF(
         kind="F", train_data=train_data,
-        D=D, T=T, tau=TAU, b=B,
+        D=D, T=T, tau=f_tau_use, b=B,
         steps=steps, lr=lr, log_every=max(1, steps), seed=seed,
     )
     policies["F"] = make_gf_assigner(
-        model_F, mu_F.detach().cpu().numpy(), eval_data, TAU, B,
+        model_F, mu_F.detach().cpu().numpy(), eval_data, f_tau_use, B,
         train_data=train_data,
     )
 
@@ -193,6 +195,11 @@ def parse_args():
     p.add_argument("--steps", type=int, default=200)
     p.add_argument("--lr", type=float, default=5e-3)
     p.add_argument("--train-seed", type=int, default=1)
+    p.add_argument(
+        "--f-tau", type=float, default=None,
+        help="Override training TAU for F (sharper -> closer to argmax at "
+             "training time, smaller softmax->argmax deployment gap).",
+    )
     p.add_argument("--out-csv", type=str, default="results/n_sweep.csv")
     p.add_argument("--out-png", type=str, default="results/n_sweep.png")
     p.add_argument(
@@ -226,6 +233,7 @@ def main():
             eval_data=eval_data,
             T=T, D=D, TAU=TAU, B=B,
             steps=args.steps, lr=args.lr, seed=args.train_seed,
+            f_tau=args.f_tau,
         )
         if args.methods is not None:
             missing = [m for m in args.methods if m not in policies]
