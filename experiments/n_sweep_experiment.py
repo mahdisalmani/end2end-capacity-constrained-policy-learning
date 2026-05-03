@@ -27,10 +27,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import torch
 
 from src import config
-from src.data import generate_data
 from src.train import train_GF
+from experiments.data_v2 import generate_data_v2 as generate_data
 from src.s2_dual import (
     fit_outcome_models,
     get_mhat_matrix,
@@ -40,13 +41,28 @@ from src.s2_dual import (
 from experiments.real_queue_experiment import (
     make_random_assigner,
     make_oracle_greedy_assigner,
-    make_gf_assigner,
     make_s2_assigner,
     make_streams,
     simulate,
     aggregate_one,
     S2_METHODS,
 )
+
+
+def make_gf_assigner(model, mu_train, eval_data, tau, B):
+    """Deterministic deployment for F. Uses the trained-time mu (which
+    F's training jointly fit with the MLP), so F can over-allocate to
+    high-value arms within its training distribution. Compared to
+    softmax sampling, this kills the random over-shoot on arm choice.
+    """
+    with torch.no_grad():
+        M = model(torch.tensor(eval_data["X"])).numpy()
+    a_star = (M - mu_train[None, :]).argmax(axis=1)
+
+    def assign(rng, person_idx):
+        return int(a_star[person_idx])
+
+    return assign
 
 
 def _gen(N, seed, D, T):
@@ -72,7 +88,7 @@ def train_policies_no_G(train_data, eval_data, T, D, TAU, B, steps, lr, seed):
         steps=steps, lr=lr, log_every=max(1, steps), seed=seed,
     )
     policies["F"] = make_gf_assigner(
-        model_F, mu_F.detach().cpu().numpy(), eval_data, TAU,
+        model_F, mu_F.detach().cpu().numpy(), eval_data, TAU, B,
     )
 
     for method in S2_METHODS:
