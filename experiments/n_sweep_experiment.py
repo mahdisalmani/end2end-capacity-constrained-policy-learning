@@ -159,7 +159,7 @@ def parse_args():
     p.add_argument("--N-sim", type=int, default=5000, dest="N_sim")
     p.add_argument("--lambda-people", type=float, default=1.0)
     p.add_argument("--num-sim-seeds", type=int, default=5)
-    p.add_argument("--max-time-mult", type=float, default=5.0)
+    p.add_argument("--max-time-mult", type=float, default=1.5)
     p.add_argument("--steps", type=int, default=200)
     p.add_argument("--lr", type=float, default=5e-3)
     p.add_argument("--train-seed", type=int, default=1)

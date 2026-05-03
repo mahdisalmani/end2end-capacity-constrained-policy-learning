@@ -83,9 +83,24 @@ def generate_data_v2(
     g = np.exp(-0.5 * ((X[:, 0] - 0.5) / sigma_g) ** 2)
     arm1_effect = arm1_strength * g                          # shape (N,)
 
-    # Y_pot[i, t] = arm1_effect[i] if t == 1 else 0, plus noise.
+    # Y_pot[i, t] = arm1_effect[i] if t == 1 else small per-arm phi
+    # effect, plus noise. The non-arm-1 effects are linear-blind (same
+    # phi basis: phi_a + 0.5 * phi_b + 0.7 * phi_c on a single
+    # arm-specific X-coord). They give S2-lasso enough between-arm
+    # variance in m_hat to overshoot caps on eval (the v1 pathology),
+    # without changing F's policy headline (arm 1 still has 10x the
+    # value of any other arm at its peak).
+    arm_other_strength = 6.0
+    other_idx = {2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8}
     Y_pot = np.zeros((N, T))
     Y_pot[:, 1] = arm1_effect
+    for arm_t, k in other_idx.items():
+        phi_sum = (
+            X[:, k] * (1 - X[:, k])
+            + 0.5 * np.sin(np.pi * X[:, k])
+            + 0.7 * np.abs(X[:, k] - 0.5)
+        )
+        Y_pot[:, arm_t] = arm_other_strength * phi_sum
     Y_pot += sigma_y * rng.normal(size=(N, T))
 
     # Diagnostic Beta is meaningless under this nonlinear DGP; fill with
