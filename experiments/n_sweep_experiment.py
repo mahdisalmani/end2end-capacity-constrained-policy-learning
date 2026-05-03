@@ -114,12 +114,34 @@ def train_policies_no_G(train_data, eval_data, T, D, TAU, B, steps, lr, seed):
 
 
 def plot_results(agg, methods, out_png):
+    """Three-panel summary plot. F is rendered with a distinct color,
+    thicker line, larger markers, and on top so it reads as the
+    headline method."""
+
+    def _style(m):
+        if m == "F":
+            return dict(color="#0b5394", linewidth=2.6, marker="o",
+                        markersize=8, markeredgecolor="white",
+                        markeredgewidth=0.8, zorder=5,
+                        label="F (proposed)")
+        return dict(linewidth=1.0, marker="o", markersize=4.5,
+                    alpha=0.85, zorder=2, label=m)
+
+    def _draw(ax, ycol, ytrans=lambda y: y):
+        # Plot non-F first, F last so F sits on top.
+        for m in methods:
+            if m == "F":
+                continue
+            sub = agg[agg["method"] == m].sort_values("N")
+            ax.plot(sub["N"], ytrans(sub[ycol]), **_style(m))
+        if "F" in methods:
+            sub = agg[agg["method"] == "F"].sort_values("N")
+            ax.plot(sub["N"], ytrans(sub[ycol]), **_style("F"))
+
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
     ax = axes[0]
-    for m in methods:
-        sub = agg[agg["method"] == m].sort_values("N")
-        ax.plot(sub["N"], sub["mean_wait_served_mean"], marker="o", label=m)
+    _draw(ax, "mean_wait_served_mean")
     ax.set_xlabel("N (training size)")
     ax.set_ylabel("Mean wait time (served)")
     ax.set_yscale("log")
@@ -128,9 +150,7 @@ def plot_results(agg, methods, out_png):
     ax.legend(loc="best", fontsize=8, ncol=2)
 
     ax = axes[1]
-    for m in methods:
-        sub = agg[agg["method"] == m].sort_values("N")
-        ax.plot(sub["N"], sub["oracle_served_mean"], marker="o", label=m)
+    _draw(ax, "oracle_served_mean")
     ax.set_xlabel("N (training size)")
     ax.set_ylabel("Mean oracle outcome (served)")
     ax.set_title("Oracle outcome vs N")
@@ -138,9 +158,7 @@ def plot_results(agg, methods, out_png):
     ax.legend(loc="best", fontsize=8, ncol=2)
 
     ax = axes[2]
-    for m in methods:
-        sub = agg[agg["method"] == m].sort_values("N")
-        ax.plot(sub["N"], 100.0 * sub["frac_unserved_mean"], marker="o", label=m)
+    _draw(ax, "frac_unserved_mean", ytrans=lambda y: 100.0 * y)
     ax.set_xlabel("N (training size)")
     ax.set_ylabel("Unserved (%)")
     ax.set_title("Unserved fraction vs N")
