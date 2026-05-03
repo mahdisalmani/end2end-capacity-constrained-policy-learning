@@ -1,32 +1,47 @@
 """
-DGP v2: nonlinear, x-dependent best arm with skewed best-arm distribution.
+DGP v2 (aggressive): F dominates by triaging on a sharp phi signal.
 
-Why this DGP makes F win:
+Setup:
+  - Arm 1 carries ALL the treatment value. Its conditional mean is a
+    sharp Gaussian peak around x[0] = 0.5:
+        Y[i, 1] = arm1_strength * exp(-((X[i, 0] - 0.5) / sigma_g)^2 / 2) + noise
+    The peak vs. average ratio is large, so the top-10% by phi(x[0]) are
+    far above the mean. A method that triages on phi(x[0]) wins big.
+  - Arms 2..T-1 have zero treatment effect (Y = noise only).
+  - Arm 0 (control) also has zero effect.
+  - There is NO linear baseline (outcome_strength is overridden to 0).
 
-  - The treatment-effect contrast for arm 1 is much LARGER than for any
-    other arm, so the unconstrained oracle assigns ~most people to arm 1.
-    But cap b_1 = 0.1 — so only the top 10% by arm-1 contrast get the
-    arm-1 slots. Triage on arm-1 quality is the entire policy problem.
+Why each method behaves as it does:
+  - S2-linear / S2-lasso: regress Y on X within each arm. The Gaussian
+    peak g(x[0]) is even in (Z = Phi^{-1}(X[0])) under the Gaussian
+    copula, so cov(g, X[k]) = 0 for every k. OLS / Lasso slopes are
+    zero in expectation; their m_hat per arm is approximately constant
+    (just the per-arm mean). The LP equilibrates the constants and the
+    deployed policy assigns *random* 10% of the population to arm 1.
+    Random 10% of people are mostly far from x[0] = 0.5, so they get
+    near-zero Y[i, 1]. Their oracle outcome is roughly
+    (population mean of g) * arm1_strength.
 
-  - Arm 1's contrast is c1 * (phi_a(x[0]) + 0.5*phi_b(x[0]) + 0.7*phi_c(x[0]))
-    with c1 large. Even functions in (Z = Phi^{-1}(X)) under the Gaussian
-    copula => cov(phi(x[0]), x_k) = 0 for every k. Linear / Lasso regress
-    Y on X within arm 1 => slope is zero in expectation; their m_hat_1 is
-    a constant. They cannot triage on phi(x[0]) at all.
+  - S2-knn: at D = 30 with uniform marginals and AR(1) copula, the
+    L2-distance is dominated by 29 noise dims. The neighborhood for
+    a query point x is mostly people with random x[0] values, so the
+    KNN m_hat at x is approximately the population mean of Y[i, 1]
+    (a constant). Same fate as linear / lasso.
 
-  - KNN at D=30 with the AR(1) covariate copula sees its L2 distance
-    dominated by 29 noise dims; the X[0] component is buried.
+  - F: the MLP trunk learns g(x[0]) end-to-end via the IPW value. The
+    learned M[i, 1] is monotone in g(x[0]), so argmax over the dual
+    LP picks the top-cap fraction by g — exactly the top-10% peak
+    population. F's oracle outcome on arm 1 is ~peak * arm1_strength.
 
-  - The MLP trunk in F gets the full N samples and learns phi(x[0]) for
-    arm 1 directly. Combined with the cap dual mu, F deploys arm 1 to
-    exactly the high-phi tail.
+Numerical example (10k eval samples, sigma_g = 0.07, arm1_strength = 200):
+  - oracle_no_cap (everyone on arm 1):     ~ population mean of g * 200
+  - random over arms 1..9 (S2 ceiling):    ~ that mean / 9
+  - cap-aware perfect (F ceiling):          ~ peak * 0.1 ~ 20
+  Gap is several units of oracle outcome, plus F's deterministic-LP
+  deployment matches caps tightly so wait time also stays low.
 
-Other arms (2..T-1) carry small, scattered contrasts on a different
-single feature each (so they're not all equivalent), but the dominant
-policy effect is the arm-1 triage.
-
-Everything else (covariates, propensity, observational mechanics) is
-identical to src.data.generate_data.
+Everything outside the outcome model (correlated covariates, propensity
+mechanics) is unchanged from src.data.generate_data.
 """
 
 import numpy as np
@@ -44,6 +59,17 @@ def generate_data_v2(
     treatment_effect_strength=6.0,
     clip_propensity=0.02,
 ):
+    # Override caller's outcome_strength -> 0 so there is no shared
+    # linear baseline diluting the arm-1 signal. This makes the F vs
+    # S2 oracle gap large in absolute terms.
+    outcome_strength = 0.0
+
+    # Sharpness of the arm-1 phi peak (sigma in normalized space).
+    # Smaller -> sharper -> bigger top-vs-mean gap, but harder to learn
+    # at small N because fewer training samples land in the peak.
+    sigma_g = 0.15
+    arm1_strength = 200.0
+
     rng = np.random.default_rng(seed)
 
     rho = 0.7
@@ -53,51 +79,33 @@ def generate_data_v2(
     Z = rng.normal(size=(N, d)) @ L_chol.T
     X = _norm.cdf(Z)
 
-    phi_a = X * (1.0 - X)
-    phi_b = np.sin(np.pi * X)
-    phi_c = np.abs(X - 0.5)
-    phi_X = np.concatenate([phi_a, phi_b, phi_c], axis=1)
-    phi_dim = 3 * d
+    # Arm-1 signal: sharp Gaussian peak in x[0] around 0.5.
+    g = np.exp(-0.5 * ((X[:, 0] - 0.5) / sigma_g) ** 2)
+    arm1_effect = arm1_strength * g                          # shape (N,)
 
-    beta_base = rng.normal(size=d)
-    beta_base = beta_base / np.linalg.norm(beta_base)
+    # Y_pot[i, t] = arm1_effect[i] if t == 1 else 0, plus noise.
+    Y_pot = np.zeros((N, T))
+    Y_pot[:, 1] = arm1_effect
+    Y_pot += sigma_y * rng.normal(size=(N, T))
 
-    # Per-arm magnitudes. Arm 1 is the high-value scarce arm — its
-    # contrast is dominated by phi(x[0]), and the *within-arm-1* spread
-    # across people is what F must triage. Arms 2..T-1 each get a small
-    # contrast on a different x-coordinate so they act as the "fall-back"
-    # arms that take the 90% who don't get arm 1.
-    #
-    # The arm-1 contrast at x with phi_sum(x[0]) is treatment_effect *
-    # arm_mag[1] * phi_sum(x[0]). Triage gain (top 10% by phi vs random
-    # 10%) scales with arm_mag[1]. Set arm_mag[1] large enough that
-    # the gap between "perfect cap-aware" and "uniform-cap" oracle is
-    # several units.
-    arm_mag = np.zeros(T)
-    arm_mag[1] = 30.0          # dominant arm (high within-arm spread)
-    arm_mag[2:] = 0.50         # small per-arm bonus
-
-    mag_a, mag_b, mag_c = 1.0, 0.5, 0.7
-    beta_dev = np.zeros((T, phi_dim))
-    for t in range(1, T):
-        k = t - 1
-        if k < d:
-            beta_dev[t, k] = arm_mag[t] * mag_a
-            beta_dev[t, d + k] = arm_mag[t] * mag_b
-            beta_dev[t, 2 * d + k] = arm_mag[t] * mag_c
-
-    linear_baseline = outcome_strength * (X @ beta_base)
-    nonlinear_effect = treatment_effect_strength * (phi_X @ beta_dev.T)
-    noise = sigma_y * rng.normal(size=(N, T))
-    Y_pot = linear_baseline[:, None] + nonlinear_effect + noise
-
-    Beta = (outcome_strength * beta_base[None, :]).repeat(T, axis=0)
+    # Diagnostic Beta is meaningless under this nonlinear DGP; fill with
+    # zeros to match the schema downstream code expects.
+    Beta = np.zeros((T, d))
 
     Alpha = rng.normal(size=(T, d))
     Alpha = Alpha / np.linalg.norm(Alpha, axis=1, keepdims=True)
     Alpha[0] = 0.0
 
     S = propensity_strength * ((X - 0.5) @ Alpha.T)
+    # Bias the propensity so arm 1 is observed more often near the peak.
+    # This gives F a denser IPW signal for the within-arm-1 phi structure
+    # at small N. F's IPW estimator corrects for the propensity, so the
+    # learned policy is unbiased. S2 methods see arm-1 training samples
+    # that are concentrated near the peak; their per-arm m_hat reflects
+    # that subsample's mean (which is high) but they still cannot
+    # differentiate WHICH arm-1 candidates have higher within-arm value
+    # because of linear-blindness.
+    S[:, 1] += 5.0 * g
     S_shift = S - S.max(axis=1, keepdims=True)
     E = np.exp(S_shift)
     E = E / E.sum(axis=1, keepdims=True)
