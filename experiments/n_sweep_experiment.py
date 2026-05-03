@@ -50,16 +50,18 @@ from experiments.real_queue_experiment import (
 
 
 def make_gf_assigner(model, mu_train, eval_data, tau, B):
-    """Deterministic deployment for F. Re-solve the dual LP on M_eval so
-    the policy mass per arm is cap-tight, then deploy argmax. With
-    propensity-biased training data, F's M[:,1] is a sharp function of
-    the arm-1 phi peak, so the LP's top-10pct slice of M[:,1] is the
-    same population the cap-aware oracle would pick."""
-    from src.s2_dual import solve_dual_lp
+    """Deterministic deployment for F. Same fixed-at-training-time policy
+    structure as S2: argmax over (M(x) - mu_train), where mu_train is the
+    dual prices fit jointly with F's MLP at training time. No peeking at
+    the eval distribution. Per-person decisions only.
+
+    NOTE: an earlier version re-solved the dual LP on M_eval to make F
+    cap-tight on eval. That gave F batch knowledge S2 does not have, so
+    the comparison was unfair. Reverted.
+    """
     with torch.no_grad():
         M = model(torch.tensor(eval_data["X"])).numpy()
-    mu_eval, _, _, _ = solve_dual_lp(M, B, verbose=False)
-    a_star = (M - mu_eval[None, :]).argmax(axis=1)
+    a_star = (M - mu_train[None, :]).argmax(axis=1)
 
     def assign(rng, person_idx):
         return int(a_star[person_idx])
