@@ -49,19 +49,30 @@ from experiments.real_queue_experiment import (
 )
 
 
-def make_gf_assigner(model, mu_train, eval_data, tau, B):
-    """Deterministic deployment for F. Same fixed-at-training-time policy
-    structure as S2: argmax over (M(x) - mu_train), where mu_train is the
-    dual prices fit jointly with F's MLP at training time. No peeking at
-    the eval distribution. Per-person decisions only.
+def make_gf_assigner(model, mu_train, eval_data, tau, B, train_data):
+    """Deterministic deployment for F with a post-hoc mu calibration on
+    the TRAINING distribution.
 
-    NOTE: an earlier version re-solved the dual LP on M_eval to make F
-    cap-tight on eval. That gave F batch knowledge S2 does not have, so
-    the comparison was unfair. Reverted.
+    F's training-time mu is fit jointly with the MLP under a softmax
+    policy (tau-sharp). At deployment we use argmax, so there is a
+    softmax->argmax discretization gap that can leave F over-assigning
+    on some arm. We close that gap by re-solving the dual LP on
+    F's M(X_train) — the same LP S2 uses — to find the mu that makes
+    argmax cap-tight on the training distribution. Eval mass per arm
+    then approximately matches cap, eliminating queue overshoot, while
+    the within-arm ranking F learned still chooses the right people.
+
+    No peeking at eval data: the calibration LP sees only train.
     """
+    from src.s2_dual import solve_dual_lp
+
     with torch.no_grad():
-        M = model(torch.tensor(eval_data["X"])).numpy()
-    a_star = (M - mu_train[None, :]).argmax(axis=1)
+        M_train = model(torch.tensor(train_data["X"])).numpy()
+    mu_calibrated, _, _, _ = solve_dual_lp(M_train, B, verbose=False)
+
+    with torch.no_grad():
+        M_eval = model(torch.tensor(eval_data["X"])).numpy()
+    a_star = (M_eval - mu_calibrated[None, :]).argmax(axis=1)
 
     def assign(rng, person_idx):
         return int(a_star[person_idx])
@@ -93,6 +104,7 @@ def train_policies_no_G(train_data, eval_data, T, D, TAU, B, steps, lr, seed):
     )
     policies["F"] = make_gf_assigner(
         model_F, mu_F.detach().cpu().numpy(), eval_data, TAU, B,
+        train_data=train_data,
     )
 
     for method in S2_METHODS:
