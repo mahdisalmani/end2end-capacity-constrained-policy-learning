@@ -35,21 +35,31 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 
-CRITEO_URL = "https://criteo-bucket.s3.eu-central-1.amazonaws.com/criteo10.csv.gz"
+CRITEO_URLS = {
+    "full":  "https://criteo-bucket.s3.eu-central-1.amazonaws.com/criteo.csv.gz",     # ~1.4GB, ~14M rows
+    "10pct": "https://criteo-bucket.s3.eu-central-1.amazonaws.com/criteo10.csv.gz",   # ~32MB,  ~1.4M rows
+}
+RAW_CSV_NAMES = {
+    "full":  "criteo.csv.gz",
+    "10pct": "criteo10.csv.gz",
+}
 DEFAULT_CACHE = "data/criteo"
-RAW_CSV = "criteo10.csv.gz"
 
 FEATURE_COLS = [f"f{k}" for k in range(12)]
 TARGET_COL = "visit"
 TREATMENT_COL = "treatment"
 
 
-def _download_if_needed(cache_dir=DEFAULT_CACHE):
+def _download_if_needed(cache_dir=DEFAULT_CACHE, variant="full"):
+    """Download criteo.csv.gz (full, ~1.4GB) or criteo10.csv.gz (10pct, ~32MB)."""
+    if variant not in CRITEO_URLS:
+        raise ValueError(f"Unknown variant {variant!r}; expected 'full' or '10pct'.")
     os.makedirs(cache_dir, exist_ok=True)
-    path = os.path.join(cache_dir, RAW_CSV)
+    url = CRITEO_URLS[variant]
+    path = os.path.join(cache_dir, RAW_CSV_NAMES[variant])
     if not os.path.exists(path):
-        print(f"[criteo] downloading {CRITEO_URL}")
-        urlretrieve(CRITEO_URL, path)
+        print(f"[criteo] downloading {url} -> {path}")
+        urlretrieve(url, path)
     return path
 
 
@@ -67,6 +77,7 @@ def load_criteo(
     seed=0,
     subsample=200_000,
     target_col=TARGET_COL,
+    variant="full",
 ):
     """Load Criteo Uplift (10% sample), subsample, fit propensity, split.
 
@@ -88,7 +99,8 @@ def load_criteo(
     cfg : dict
         {N, T, D, TAU, B}.
     """
-    csv_path = _download_if_needed(cache_dir)
+    csv_path = _download_if_needed(cache_dir, variant=variant)
+    print(f"[criteo] reading {csv_path} ({variant} variant)")
     df = pd.read_csv(csv_path, compression="gzip")
 
     if subsample is not None and subsample < len(df):

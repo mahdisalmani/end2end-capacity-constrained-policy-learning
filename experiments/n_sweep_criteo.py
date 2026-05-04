@@ -146,7 +146,7 @@ def ipw_policy_value(arms_eval, eval_data):
 
 # === Block D: plot ===========================================================
 
-def plot_results(agg, methods, out_png):
+def plot_results(agg, methods, out_png, variant_label="full"):
     """1x3 panel: mean wait time, IPW policy value, unserved %.
     F gets a thicker dark-blue line, drawn on top."""
 
@@ -196,7 +196,7 @@ def plot_results(agg, methods, out_png):
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best", fontsize=8, ncol=2)
 
-    fig.suptitle("Criteo Uplift (10% sample): F vs S2 (G omitted)")
+    fig.suptitle(f"Criteo Uplift ({variant_label}): F vs S2 (G omitted)")
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(out_png, dpi=130)
     print(f"[plot] wrote {out_png}")
@@ -209,8 +209,12 @@ def parse_args():
     p.add_argument("--n-values", type=int, nargs="+",
                    default=[200, 1000, 5000, 20000, 100000])
     p.add_argument("--criteo-subsample", type=int, default=200_000,
-                   help="Random subsample size from the 1.4M-row 10pct file "
-                        "before train/eval splitting.")
+                   help="Random subsample size from the source file before "
+                        "train/eval splitting.")
+    p.add_argument("--criteo-variant", type=str, default="full",
+                   choices=["full", "10pct"],
+                   help="Which Criteo source file to load. 'full' = ~14M rows, "
+                        "'10pct' = ~1.4M rows.")
     p.add_argument("--N-sim", type=int, default=1000, dest="N_sim",
                    help="Simulator arrival count (drawn with replacement "
                         "from eval split).")
@@ -254,9 +258,12 @@ def main():
     torch.manual_seed(args.train_seed)
     np.random.seed(args.train_seed)
 
+    subsample = args.criteo_subsample if args.criteo_subsample > 0 else None
     train_full, eval_data, cfg = load_criteo(
-        seed=args.split_seed, subsample=args.criteo_subsample,
+        seed=args.split_seed, subsample=subsample,
+        variant=args.criteo_variant,
     )
+    cfg["variant"] = args.criteo_variant
     T = int(cfg["T"])
     D = int(cfg["D"])
     TAU = float(cfg["TAU"])
@@ -363,7 +370,10 @@ def main():
         ]
         methods_present = [m for m in method_order
                            if m in agg["method"].values]
-        plot_results(agg, methods_present, args.out_png)
+        variant_label = {"full": "full ~14M rows",
+                         "10pct": "10% sample, ~1.4M rows"}[args.criteo_variant]
+        plot_results(agg, methods_present, args.out_png,
+                     variant_label=variant_label)
 
 
 if __name__ == "__main__":
