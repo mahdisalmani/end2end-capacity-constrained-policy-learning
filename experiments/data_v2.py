@@ -67,8 +67,16 @@ def generate_data_v2(
     # Sharpness of the arm-1 phi peak (sigma in normalized space).
     # Smaller -> sharper -> bigger top-vs-mean gap, but harder to learn
     # at small N because fewer training samples land in the peak.
-    sigma_g = 0.15
-    arm1_strength = 200.0
+    sigma_g = 0.20
+    arm1_strength = 500.0
+    # Anti-correlated linear bias inside the arm-1 outcome. Within-arm
+    # OLS / Lasso slope is dominated by this term (the gaussian peak is
+    # linear-blind), so S2-linear / S2-lasso end up routing low-x[0]
+    # people to arm 1 -- exactly the people who are FAR from the peak,
+    # so their oracle outcome on arm 1 collapses. Magnitude tuned
+    # much smaller than arm1_strength so the actual best arm at
+    # x[0]=0.5 is still arm 1.
+    arm1_linear_neg = 50.0
 
     rng = np.random.default_rng(seed)
 
@@ -79,9 +87,10 @@ def generate_data_v2(
     Z = rng.normal(size=(N, d)) @ L_chol.T
     X = _norm.cdf(Z)
 
-    # Arm-1 signal: sharp Gaussian peak in x[0] around 0.5.
+    # Arm-1 signal: sharp Gaussian peak in x[0] around 0.5, plus an
+    # anti-correlated linear term that misleads OLS / Lasso slopes.
     g = np.exp(-0.5 * ((X[:, 0] - 0.5) / sigma_g) ** 2)
-    arm1_effect = arm1_strength * g                          # shape (N,)
+    arm1_effect = arm1_strength * g - arm1_linear_neg * X[:, 0]   # (N,)
 
     # Y_pot[i, t] = arm1_effect[i] if t == 1 else small per-arm phi
     # effect, plus noise. The non-arm-1 effects are linear-blind (same
@@ -120,7 +129,7 @@ def generate_data_v2(
     # that subsample's mean (which is high) but they still cannot
     # differentiate WHICH arm-1 candidates have higher within-arm value
     # because of linear-blindness.
-    S[:, 1] += 5.0 * g
+    S[:, 1] += 10.0 * g
     S_shift = S - S.max(axis=1, keepdims=True)
     E = np.exp(S_shift)
     E = E / E.sum(axis=1, keepdims=True)

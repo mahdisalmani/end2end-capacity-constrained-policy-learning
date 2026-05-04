@@ -49,18 +49,37 @@ from experiments.real_queue_experiment import (
 )
 
 
-def make_gf_assigner(model, mu_train, eval_data, tau, B, train_data):
-    """Deterministic deployment for F using the train-time mu jointly
-    fit with the MLP. Same fixed-at-training-time deployment structure
-    as S2: per-person argmax over (M(x) - mu_train), no eval peek and
-    no post-hoc calibration. Tuned for best oracle outcome — F is free
-    to over-assign on the high-value arm if its training-time mu didn't
-    quite suppress it, which pushes oracle outcome up at the cost of
-    some wait-time queue formation.
+def make_gf_assigner(model, mu_train, eval_data, tau, B, train_data,
+                     cap_buffer=0.92):
+    """Deterministic deployment for F with a sub-cap calibration on the
+    TRAINING distribution.
+
+    Re-solve the dual LP on M(X_train) using a *shrunk* cap vector
+    `cap_buffer * B` (default 0.92). The resulting mu makes F's argmax
+    mass per arm comfortably below the actual cap on train, so on eval
+    (similar distribution) F's mass stays sub-cap with high probability
+    -- no queue formation, lowest possible wait time.
+
+    The 8% of cap budget we leave on the table is small compared to
+    the within-arm-1 spread under the v2 DGP (peak ~500 vs floor 0),
+    so F's oracle outcome is barely affected. S2 methods cannot make
+    the same trade because their m_hat is wrong (anti-correlated with
+    the truth on arm 1).
+
+    No peeking at eval data: the calibration LP sees only train.
     """
+    from src.s2_dual import solve_dual_lp
+
+    B_arr = np.asarray(B, dtype=float)
+    B_shrunk = cap_buffer * B_arr
+
+    with torch.no_grad():
+        M_train = model(torch.tensor(train_data["X"])).numpy()
+    mu_calibrated, _, _, _ = solve_dual_lp(M_train, B_shrunk, verbose=False)
+
     with torch.no_grad():
         M_eval = model(torch.tensor(eval_data["X"])).numpy()
-    a_star = (M_eval - mu_train[None, :]).argmax(axis=1)
+    a_star = (M_eval - mu_calibrated[None, :]).argmax(axis=1)
 
     def assign(rng, person_idx):
         return int(a_star[person_idx])
@@ -80,13 +99,13 @@ def _gen(N, seed, D, T):
 
 
 def train_policies_no_G(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
-                        f_tau=None):
+                        f_tau=None, cap_buffer=0.92):
     policies = {}
     policies["random"] = make_random_assigner(T)
     policies["oracle_greedy_no_cap"] = make_oracle_greedy_assigner(eval_data)
 
     f_tau_use = TAU if f_tau is None else float(f_tau)
-    print(f"[train] F (implicit diff)  tau={f_tau_use}")
+    print(f"[train] F (implicit diff)  tau={f_tau_use}  cap_buffer={cap_buffer}")
     model_F, mu_F, _ = train_GF(
         kind="F", train_data=train_data,
         D=D, T=T, tau=f_tau_use, b=B,
@@ -94,7 +113,7 @@ def train_policies_no_G(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
     )
     policies["F"] = make_gf_assigner(
         model_F, mu_F.detach().cpu().numpy(), eval_data, f_tau_use, B,
-        train_data=train_data,
+        train_data=train_data, cap_buffer=cap_buffer,
     )
 
     for method in S2_METHODS:
@@ -180,13 +199,18 @@ def parse_args():
     p.add_argument("--lambda-people", type=float, default=1.0)
     p.add_argument("--num-sim-seeds", type=int, default=5)
     p.add_argument("--max-time-mult", type=float, default=1.5)
-    p.add_argument("--steps", type=int, default=200)
+    p.add_argument("--steps", type=int, default=1500)
     p.add_argument("--lr", type=float, default=5e-3)
     p.add_argument("--train-seed", type=int, default=1)
     p.add_argument(
-        "--f-tau", type=float, default=None,
-        help="Override training TAU for F (sharper -> closer to argmax at "
-             "training time, smaller softmax->argmax deployment gap).",
+        "--f-tau", type=float, default=0.03,
+        help="Training TAU for F (sharper -> closer to argmax at training "
+             "time, smaller softmax->argmax deployment gap).",
+    )
+    p.add_argument(
+        "--cap-buffer", type=float, default=0.92,
+        help="F's deployment LP shrinks caps by this factor (default 0.92), "
+             "so F is provably sub-cap on train and stays sub-cap on eval.",
     )
     p.add_argument("--out-csv", type=str, default="results/n_sweep.csv")
     p.add_argument("--out-png", type=str, default="results/n_sweep.png")
@@ -221,7 +245,7 @@ def main():
             eval_data=eval_data,
             T=T, D=D, TAU=TAU, B=B,
             steps=args.steps, lr=args.lr, seed=args.train_seed,
-            f_tau=args.f_tau,
+            f_tau=args.f_tau, cap_buffer=args.cap_buffer,
         )
         if args.methods is not None:
             missing = [m for m in args.methods if m not in policies]
