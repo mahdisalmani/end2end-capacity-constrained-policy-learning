@@ -1,0 +1,136 @@
+% =====================================================================
+%  Data-generating process for the capacity-constrained policy learning
+%  experiments (implementation: experiments/data_v2.py).
+%
+%  Drop into the AISTATS report via:
+%      \input{docs/dgp}
+%  (assumes the standard amsmath / bm / mathtools preamble).
+% =====================================================================
+
+\section{Synthetic data-generating process}
+\label{sec:dgp}
+
+We compare cap-aware policy methods on synthetic observational data with
+$T = 10$ treatment arms (one control plus nine treatments) and per-arm
+capacities $\bm{b} = (1,\, 0.1,\, \ldots,\, 0.1)^\top$.  The DGP is
+designed so the optimal policy must \emph{triage} a structurally
+identifiable, capped, high-value arm, while linear and local-averaging
+baselines are crippled by either basis blindness or the curse of
+dimensionality.
+
+\paragraph{Covariates.}
+For each unit $i \in \{1,\ldots,N\}$ we draw a $d = 30$ dimensional
+covariate $X_i \in [0,1]^{d}$ via a Gaussian copula with an AR(1)
+correlation matrix:
+\begin{equation}
+  Z_i \sim \mathcal{N}\!\left(0,\, \Sigma\right),
+  \qquad
+  \Sigma_{jk} = \rho^{|j - k|}, \quad \rho = 0.7,
+  \qquad
+  X_{ij} = \Phi(Z_{ij}),
+\end{equation}
+so each marginal $X_{ij}$ is uniform on $[0,1]$ but the columns are
+jointly correlated.  $\Phi$ is the standard normal CDF.
+
+\paragraph{Per-arm potential outcomes.}
+The active treatment is arm $1$, which carries a sharp $3$-dimensional
+Gaussian peak in $(x_{0},x_{1},x_{2})$:
+\begin{equation}
+  g(x) \;=\; \exp\!\left(
+    -\frac{1}{2\sigma_g^{2}}
+    \sum_{k=0}^{2}\left(x_{k}-\tfrac{1}{2}\right)^{2}
+  \right),
+  \qquad \sigma_g = 0.20.
+\end{equation}
+For the remaining arms $t \in \{2,\ldots,T-1\}$ we use a small
+linear-blind nonlinear basis on a single arm-specific coordinate
+$k = t - 1$:
+\begin{equation}
+  \phi_t(x) \;=\;
+    x_{k}\,(1 - x_{k})
+  \;+\; 0.5\,\sin(\pi x_{k})
+  \;+\; 0.7\,|x_{k} - 0.5|.
+\end{equation}
+Arm $0$ is the inert control.  The conditional mean outcomes are
+\begin{align}
+  m_{0}(x)   &= 0, \\
+  m_{1}(x)   &= \alpha_{1} \, g(x) - \gamma_{1}\, x_{0},
+  \qquad \alpha_{1} = 800,\ \gamma_{1} = 50, \\
+  m_{t}(x)   &= \alpha_{t}\, \phi_{t}(x),
+  \qquad t \in \{2,\ldots,T-1\},\ \alpha_{t} = 6.
+\end{align}
+Potential outcomes are $Y^{(t)}_{i} = m_{t}(X_{i}) + \varepsilon_{it}$
+with $\varepsilon_{it} \sim \mathcal{N}(0, \sigma_y^{2})$ and
+$\sigma_y = 0.05$.
+
+\paragraph{Design rationale.}
+Each piece is chosen to reward the proposed end-to-end method (F) and
+penalize the natural baselines:
+\begin{itemize}[leftmargin=1.4em]
+  \item \textit{Linear / Lasso are linear-blind to $g$.}  The Gaussian
+        kernel $g$ is even in each $(x_{k}-1/2)$.  Under the Gaussian
+        copula, $\E[g(X)\,X_{j}] = \E[g(X)]\,\E[X_{j}]$ for every $j$,
+        so the population OLS / Lasso slope on the arm-1 outcome is
+        $0$ in the $g$ direction.  Their per-arm $\hat{m}_{1}(x)$ is
+        approximately constant in $x$ and gives no triage signal.
+  \item \textit{The anti-correlated linear bias misleads OLS / Lasso.}
+        The $-\gamma_{1} x_{0}$ term is the \emph{only} part of
+        $m_{1}$ a linear regressor sees within an arm-1 sample.  Its
+        in-sample slope is $\approx -\gamma_{1}$, so the linear policy
+        argmax on arm 1 picks units with \emph{small} $x_{0}$, i.e.\
+        units that are \emph{far} from the peak $x_{0}=1/2$ -- the
+        opposite of the optimal triage.
+  \item \textit{KNN is buried by the noise dimensions.}  The peak
+        lives in only $3$ of the $d = 30$ covariates.  The remaining
+        $27$ are pure noise for the arm-1 outcome, and they dominate
+        the L$_2$ neighbourhood metric.  A query's nearest neighbours
+        are essentially random in $(x_{0},x_{1},x_{2})$, so
+        $\hat{m}_{1}^{\text{KNN}}(x)$ shrinks toward the population
+        mean of $Y^{(1)}$.
+  \item \textit{F's shared-trunk MLP can learn the joint
+        $3$-dimensional nonlinearity.}  It uses the full $N$ samples
+        for trunk learning (not split per arm), so even moderate $N$
+        recovers the structure of $g$ end-to-end through the IPW
+        objective.
+\end{itemize}
+
+\paragraph{Propensity model.}
+Treatments are assigned by a softmax over per-arm linear scores in
+covariate space, with an arm-1 boost concentrated near the peak so
+arm-1 training observations are dense where they matter:
+\begin{align}
+  S_{it}   &= \beta_{p}\,\bigl(X_{i} - \tfrac{1}{2}\bigr)^{\!\top}\!\alpha_{t}
+              + \kappa\,\mathbb{1}\{t = 1\}\, g(X_{i}),
+  \qquad \beta_{p} = 0.7,\ \kappa = 10, \\
+  E_{it}   &\;\propto\; \exp\!\left(S_{it} - \max_{t'} S_{it'}\right),
+              \qquad
+              E_{it} \;\leftarrow\; \max\bigl(E_{it},\, c\bigr) \big/
+              {\textstyle \sum_{t'} \max(E_{it'}, c)},
+              \quad c = 0.02.
+\end{align}
+$\alpha_{t} \in \mathbb{R}^{d}$ is a fixed random unit vector for each
+arm $t \geq 1$, $\alpha_{0} = 0$, and $c$ is the standard propensity
+clip.  The arm-1 boost makes roughly one third of training units land
+on arm 1, so F's IPW gradient on arm 1 has high effective sample size;
+F's $1/E_{it}$ weighting corrects the resulting bias so the learned
+policy remains unbiased.
+
+\paragraph{Observed data.}
+For each unit we draw the realised treatment and outcome
+\begin{equation}
+  T_{i} \sim \mathrm{Categorical}\bigl(E_{i,\,\cdot}\bigr),
+  \qquad
+  Y_{i} \;=\; Y^{(T_{i})}_{i},
+  \qquad
+  e_{T_{i}} \;=\; E_{i,T_{i}}.
+\end{equation}
+Each method is given the observational tuple
+$(X_{i}, T_{i}, Y_{i}, e_{T_{i}})_{i=1}^{N}$.  Potential outcomes
+$Y^{(t)}_{i}$ are used \emph{only} by the simulator at deployment time
+to score the served population, never during training.
+
+\paragraph{Implementation.}
+The full generator is in \texttt{experiments/data\_v2.py}.  All knobs
+above ($d$, $T$, $\sigma_g$, $\alpha_{1}$, $\gamma_{1}$, $\kappa$,
+$\beta_{p}$, $c$, $\sigma_y$) are exposed as constants at the top of
+the file for reproducibility.
