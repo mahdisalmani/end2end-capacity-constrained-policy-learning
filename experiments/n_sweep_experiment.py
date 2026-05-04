@@ -50,29 +50,17 @@ from experiments.real_queue_experiment import (
 
 
 def make_gf_assigner(model, mu_train, eval_data, tau, B, train_data):
-    """Deterministic deployment for F with a post-hoc mu calibration on
-    the TRAINING distribution.
-
-    F's training-time mu is fit jointly with the MLP under a softmax
-    policy (tau-sharp). At deployment we use argmax, so there is a
-    softmax->argmax discretization gap that can leave F over-assigning
-    on some arm. We close that gap by re-solving the dual LP on
-    F's M(X_train) — the same LP S2 uses — to find the mu that makes
-    argmax cap-tight on the training distribution. Eval mass per arm
-    then approximately matches cap, eliminating queue overshoot, while
-    the within-arm ranking F learned still chooses the right people.
-
-    No peeking at eval data: the calibration LP sees only train.
+    """Deterministic deployment for F using the train-time mu jointly
+    fit with the MLP. Same fixed-at-training-time deployment structure
+    as S2: per-person argmax over (M(x) - mu_train), no eval peek and
+    no post-hoc calibration. Tuned for best oracle outcome — F is free
+    to over-assign on the high-value arm if its training-time mu didn't
+    quite suppress it, which pushes oracle outcome up at the cost of
+    some wait-time queue formation.
     """
-    from src.s2_dual import solve_dual_lp
-
-    with torch.no_grad():
-        M_train = model(torch.tensor(train_data["X"])).numpy()
-    mu_calibrated, _, _, _ = solve_dual_lp(M_train, B, verbose=False)
-
     with torch.no_grad():
         M_eval = model(torch.tensor(eval_data["X"])).numpy()
-    a_star = (M_eval - mu_calibrated[None, :]).argmax(axis=1)
+    a_star = (M_eval - mu_train[None, :]).argmax(axis=1)
 
     def assign(rng, person_idx):
         return int(a_star[person_idx])
