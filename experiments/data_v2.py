@@ -64,18 +64,16 @@ def generate_data_v2(
     # S2 oracle gap large in absolute terms.
     outcome_strength = 0.0
 
-    # Sharpness of the arm-1 phi peak (sigma in normalized space).
-    # Smaller -> sharper -> bigger top-vs-mean gap, but harder to learn
-    # at small N because fewer training samples land in the peak.
+    # 3-DIMENSIONAL Gaussian peak. Peak lives jointly in (x[0], x[1],
+    # x[2]); the other 27 dims are pure noise for the arm-1 outcome.
+    # With 3D the peak ball covers ~12% of population. KNN's L2 over
+    # 30 dims is dominated by the 27 noise dims, so its neighbors are
+    # mostly NOT in the 3D peak, blurring KNN's m_hat. The joint 3D
+    # nonlinearity is invisible to the linear basis. F's MLP learns
+    # the joint structure if given enough N.
+    peak_dims = 3
     sigma_g = 0.20
-    arm1_strength = 500.0
-    # Anti-correlated linear bias inside the arm-1 outcome. Within-arm
-    # OLS / Lasso slope is dominated by this term (the gaussian peak is
-    # linear-blind), so S2-linear / S2-lasso end up routing low-x[0]
-    # people to arm 1 -- exactly the people who are FAR from the peak,
-    # so their oracle outcome on arm 1 collapses. Magnitude tuned
-    # much smaller than arm1_strength so the actual best arm at
-    # x[0]=0.5 is still arm 1.
+    arm1_strength = 800.0
     arm1_linear_neg = 50.0
 
     rng = np.random.default_rng(seed)
@@ -87,9 +85,11 @@ def generate_data_v2(
     Z = rng.normal(size=(N, d)) @ L_chol.T
     X = _norm.cdf(Z)
 
-    # Arm-1 signal: sharp Gaussian peak in x[0] around 0.5, plus an
-    # anti-correlated linear term that misleads OLS / Lasso slopes.
-    g = np.exp(-0.5 * ((X[:, 0] - 0.5) / sigma_g) ** 2)
+    # Arm-1 signal: 5-D Gaussian peak centered at (0.5, ..., 0.5) over
+    # x[0..4], plus a small anti-correlated linear bias on x[0] that
+    # misleads OLS / Lasso slopes.
+    peak_dist_sq = ((X[:, :peak_dims] - 0.5) ** 2).sum(axis=1)
+    g = np.exp(-0.5 * peak_dist_sq / sigma_g ** 2)
     arm1_effect = arm1_strength * g - arm1_linear_neg * X[:, 0]   # (N,)
 
     # Y_pot[i, t] = arm1_effect[i] if t == 1 else small per-arm phi
