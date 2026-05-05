@@ -53,13 +53,12 @@ def make_treat_all_assigner():
     return assign
 
 
-def make_gf_assigner(model, mu_train, eval_data, tau, B, train_data,
-                     cap_buffer=0.92):
-    """Deterministic deployment for F.
+def _f_arms_and_assigner(model, train_data, eval_data, B, cap_buffer):
+    """Return (arms_train, arms_eval, assigner) for F.
 
     Re-solves the dual LP on F's M(X_train) with cap vector
     `cap_buffer * B` (default 0.92 -> sub-cap), then deploys
-    `argmax(M_eval - mu_calibrated)`. No peek at the eval distribution.
+    `argmax(M - mu_calibrated)` on both train and eval.
     """
     B_arr = np.asarray(B, dtype=float)
     B_shrunk = cap_buffer * B_arr
@@ -67,24 +66,43 @@ def make_gf_assigner(model, mu_train, eval_data, tau, B, train_data,
     with torch.no_grad():
         M_train = model(torch.tensor(train_data["X"])).numpy()
     mu_calibrated, _, _, _ = solve_dual_lp(M_train, B_shrunk, verbose=False)
+    arms_train = (M_train - mu_calibrated[None, :]).argmax(axis=1)
 
     with torch.no_grad():
         M_eval = model(torch.tensor(eval_data["X"])).numpy()
-    a_star = (M_eval - mu_calibrated[None, :]).argmax(axis=1)
+    arms_eval = (M_eval - mu_calibrated[None, :]).argmax(axis=1)
 
-    def assign(rng, person_idx):
-        return int(a_star[person_idx])
+    def assigner(rng, person_idx):
+        return int(arms_eval[person_idx])
 
-    return assign
+    return arms_train, arms_eval, assigner
 
 
 # === Block B: train all methods ==============================================
 
 def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
                    f_tau=0.03, cap_buffer=0.92):
+    """Return (policies, arms_train, arms_eval).
+
+    `policies` is method -> (rng, person_idx) -> arm (for the simulator).
+    `arms_train` and `arms_eval` are method -> int64 array of policy
+    arm choices on train_data["X"] / eval_data["X"], used for the IPW
+    policy-value computation.
+    """
     policies = {}
+    arms_train = {}
+    arms_eval = {}
+    n_train = len(train_data["T"])
+    n_eval = len(eval_data["T"])
+
     policies["random"] = make_random_assigner(T)
+    rng_r = np.random.default_rng(seed * 7919 + 1)
+    arms_train["random"] = rng_r.integers(T, size=n_train)
+    arms_eval["random"] = rng_r.integers(T, size=n_eval)
+
     policies["treat_all"] = make_treat_all_assigner()
+    arms_train["treat_all"] = np.ones(n_train, dtype=np.int64)
+    arms_eval["treat_all"] = np.ones(n_eval, dtype=np.int64)
 
     f_tau_use = float(f_tau)
     print(f"[train] F (implicit diff)  tau={f_tau_use}  cap_buffer={cap_buffer}")
@@ -93,10 +111,12 @@ def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
         D=D, T=T, tau=f_tau_use, b=B,
         steps=steps, lr=lr, log_every=max(1, steps), seed=seed,
     )
-    policies["F"] = make_gf_assigner(
-        model_F, mu_F.detach().cpu().numpy(), eval_data, f_tau_use, B,
-        train_data=train_data, cap_buffer=cap_buffer,
+    a_train_F, a_eval_F, assigner_F = _f_arms_and_assigner(
+        model_F, train_data, eval_data, B, cap_buffer,
     )
+    arms_train["F"] = a_train_F
+    arms_eval["F"] = a_eval_F
+    policies["F"] = assigner_F
 
     for method in S2_METHODS[:4]:    # linear, lasso, tree, knn (skip dr)
         if method not in {"linear", "lasso", "knn"}:
@@ -111,11 +131,18 @@ def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
         )
         M_hat_train = get_mhat_matrix(outcome_models, train_data["X"], T)
         mu_hat, _, _, _ = solve_dual_lp(M_hat_train, B, verbose=False)
+        arms_train[f"S2-{method}"] = (
+            M_hat_train - mu_hat[None, :]
+        ).argmax(axis=1)
+        M_hat_eval = get_mhat_matrix(outcome_models, eval_data["X"], T)
+        arms_eval[f"S2-{method}"] = (
+            M_hat_eval - mu_hat[None, :]
+        ).argmax(axis=1)
         policies[f"S2-{method}"] = make_s2_assigner(
             outcome_models, mu_hat, eval_data, T,
         )
 
-    return policies
+    return policies, arms_train, arms_eval
 
 
 # === Block C: IPW policy value ===============================================
@@ -130,17 +157,16 @@ def precompute_arms(assigner, n_eval, rng_seed=0):
     )
 
 
-def ipw_policy_value(arms_eval, eval_data):
-    """V_IPW = (1 / N_eval) * sum_i  Y_i * 1{a_eval[i] = T_i} / e_T_i.
+def ipw_policy_value(arms, data):
+    """V_IPW = (1 / N) * sum_i  Y_i * 1{arms[i] = T_i} / e_T_i.
 
-    For deterministic policies the indicator is 0/1. e_T_i is the
-    propensity of the OBSERVED treatment, already clipped in the
-    LaLonde loader.
+    Works for any (arms, data) where the lengths match. Use it for
+    both train-side and eval-side IPW values.
     """
-    Y = eval_data["Y"]
-    T = eval_data["T"]
-    e_T = eval_data["e_T"]
-    matched = (arms_eval == T).astype(np.float64)
+    Y = data["Y"]
+    T = data["T"]
+    e_T = data["e_T"]
+    matched = (arms == T).astype(np.float64)
     return float((Y * matched / e_T).mean())
 
 
@@ -172,28 +198,31 @@ def plot_results(agg, methods, out_png, variant_label="full"):
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
     ax = axes[0]
-    _draw(ax, "mean_wait_served_mean")
+    _draw(ax, "ipw_val_mean")
     ax.set_xlabel("N (train subsample size)")
-    ax.set_ylabel("Mean wait time (served)")
-    ax.set_yscale("log")
-    ax.set_title("Mean wait time vs N")
+    ax.set_ylabel("IPW value, validation (P(visit))")
+    ax.set_xscale("log")
+    ax.set_title("IPW (val) vs N")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(loc="best", fontsize=8, ncol=2)
 
     ax = axes[1]
-    _draw(ax, "ipw_value_mean")
+    _draw(ax, "ipw_train_mean")
     ax.set_xlabel("N (train subsample size)")
-    ax.set_ylabel("IPW policy value (eval, P(visit))")
-    ax.set_title("IPW value vs N")
-    ax.grid(True, alpha=0.3)
+    ax.set_ylabel("IPW value, train (P(visit))")
+    ax.set_xscale("log")
+    ax.set_title("IPW (train) vs N")
+    ax.grid(True, which="both", alpha=0.3)
     ax.legend(loc="best", fontsize=8, ncol=2)
 
     ax = axes[2]
-    _draw(ax, "frac_unserved_mean", ytrans=lambda y: 100.0 * y)
+    _draw(ax, "mean_wait_served_mean")
     ax.set_xlabel("N (train subsample size)")
-    ax.set_ylabel("Unserved (%)")
-    ax.set_title("Unserved fraction vs N")
-    ax.grid(True, alpha=0.3)
+    ax.set_ylabel("Mean wait time (served)")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_title("Mean wait time vs N")
+    ax.grid(True, which="both", alpha=0.3)
     ax.legend(loc="best", fontsize=8, ncol=2)
 
     fig.suptitle(f"Criteo Uplift ({variant_label}): F vs S2 (G omitted)")
@@ -206,12 +235,15 @@ def plot_results(agg, methods, out_png, variant_label="full"):
 
 def parse_args():
     p = argparse.ArgumentParser(description="Criteo Uplift N-sweep (real data).")
+    # 20 log-spaced N values from 100 to 30000.
     p.add_argument("--n-values", type=int, nargs="+",
-                   default=[200, 1000, 5000, 20000, 100000])
-    p.add_argument("--criteo-subsample", type=int, default=200_000,
+                   default=[100, 150, 200, 270, 370, 500, 700, 950, 1300,
+                            1800, 2400, 3300, 4500, 6100, 8300, 11300,
+                            15400, 20900, 28400, 30000])
+    p.add_argument("--criteo-subsample", type=int, default=0,
                    help="Random subsample size from the source file before "
-                        "train/eval splitting.")
-    p.add_argument("--criteo-variant", type=str, default="full",
+                        "train/eval splitting. 0 = use the whole file.")
+    p.add_argument("--criteo-variant", type=str, default="10pct",
                    choices=["full", "10pct"],
                    help="Which Criteo source file to load. 'full' = ~14M rows, "
                         "'10pct' = ~1.4M rows.")
@@ -276,7 +308,7 @@ def main():
         print(f"\n========== N = {N} ==========")
         td = _subsample(train_full, N, seed=args.split_seed * 1000 + N)
         t0 = time.time()
-        policies = train_policies(
+        policies, arms_train_d, arms_eval_d = train_policies(
             train_data=td,
             eval_data=eval_data,
             T=T, D=D, TAU=TAU, B=B,
@@ -289,16 +321,22 @@ def main():
                 raise ValueError(f"Unknown methods: {missing}. "
                                  f"Available: {list(policies)}")
             policies = {m: policies[m] for m in args.methods}
+            arms_train_d = {m: arms_train_d[m] for m in args.methods}
+            arms_eval_d  = {m: arms_eval_d[m]  for m in args.methods}
         print(f"[N={N}] train wall: {time.time() - t0:.1f}s, "
               f"methods: {list(policies)}")
 
-        # IPW policy value (precompute once per method on the eval split).
-        ipw_per_method = {}
-        for method, assigner in policies.items():
-            arms_eval = precompute_arms(
-                assigner, n_eval, rng_seed=hash((method, "ipw")) & 0xFFFFFFFF)
-            ipw_per_method[method] = ipw_policy_value(arms_eval, eval_data)
-            print(f"  {method:25s}  IPW = {ipw_per_method[method]:8.3f}")
+        # IPW policy value on TRAIN and on EVAL (no eval peek; arms are
+        # the deterministic policy outputs from the trained model).
+        ipw_train_per_method = {}
+        ipw_eval_per_method = {}
+        for method in policies:
+            ipw_train_per_method[method] = ipw_policy_value(
+                arms_train_d[method], td)
+            ipw_eval_per_method[method] = ipw_policy_value(
+                arms_eval_d[method], eval_data)
+            print(f"  {method:25s}  IPW(train)={ipw_train_per_method[method]:7.4f}  "
+                  f"IPW(val)={ipw_eval_per_method[method]:7.4f}")
 
         for sim_seed in range(args.num_sim_seeds):
             people_t, person_idx, T_max, resource_t = make_streams(
@@ -314,44 +352,44 @@ def main():
                 wall = time.time() - t_sim
                 row = aggregate_one(recs, method, sim_seed, B, args.N_sim, wall)
                 row["N"] = int(N)
-                row["ipw_value"] = ipw_per_method[method]
+                row["ipw_train"] = ipw_train_per_method[method]
+                row["ipw_val"] = ipw_eval_per_method[method]
                 rows.append(row)
 
     df = pd.DataFrame(rows)
 
     agg = df.groupby(["N", "method"]).agg(
         mean_wait_served_mean=("mean_wait_served", "mean"),
-        ipw_value_mean=("ipw_value", "mean"),
+        ipw_val_mean=("ipw_val", "mean"),
+        ipw_train_mean=("ipw_train", "mean"),
         frac_unserved_mean=("frac_unserved", "mean"),
     ).reset_index()
 
     wait_pivot = agg.pivot(index="N", columns="method",
                            values="mean_wait_served_mean").sort_index()
-    ipw_pivot = agg.pivot(index="N", columns="method",
-                          values="ipw_value_mean").sort_index()
-    unserved_pivot = (
-        100.0 * agg.pivot(index="N", columns="method",
-                          values="frac_unserved_mean")
-    ).sort_index()
+    ipw_val_pivot = agg.pivot(index="N", columns="method",
+                              values="ipw_val_mean").sort_index()
+    ipw_train_pivot = agg.pivot(index="N", columns="method",
+                                values="ipw_train_mean").sort_index()
 
     print("\n" + "=" * 100)
+    print("Criteo N-SWEEP: IPW policy value (validation, P(visit) basis)")
+    print("=" * 100)
+    with pd.option_context("display.float_format", lambda x: f"{x:8.4f}",
+                           "display.width", 200):
+        print(ipw_val_pivot.to_string())
+    print("=" * 100)
+    print("Criteo N-SWEEP: IPW policy value (train, P(visit) basis)")
+    print("=" * 100)
+    with pd.option_context("display.float_format", lambda x: f"{x:8.4f}",
+                           "display.width", 200):
+        print(ipw_train_pivot.to_string())
+    print("=" * 100)
     print("Criteo N-SWEEP: mean wait time (served)")
     print("=" * 100)
     with pd.option_context("display.float_format", lambda x: f"{x:10.2f}",
                            "display.width", 200):
         print(wait_pivot.to_string())
-    print("=" * 100)
-    print("Criteo N-SWEEP: IPW policy value (eval, P(visit) basis)")
-    print("=" * 100)
-    with pd.option_context("display.float_format", lambda x: f"{x:8.3f}",
-                           "display.width", 200):
-        print(ipw_pivot.to_string())
-    print("=" * 100)
-    print("Criteo N-SWEEP: unserved (%)")
-    print("=" * 100)
-    with pd.option_context("display.float_format", lambda x: f"{x:7.2f}",
-                           "display.width", 200):
-        print(unserved_pivot.to_string())
     print("=" * 100)
 
     if args.out_csv:
