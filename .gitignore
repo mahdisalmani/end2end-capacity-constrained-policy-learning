@@ -24,3 +24,4 @@ logs/
 *.pth.tar
 *.lock
 *.png
+*.zip
