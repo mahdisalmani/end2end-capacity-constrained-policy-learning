@@ -27,6 +27,7 @@ import pandas as pd
 import torch
 
 from src.train import train_GF
+from src.train_alt import train_alt
 from src.s2_dual import (
     fit_outcome_models,
     get_mhat_matrix,
@@ -81,7 +82,7 @@ def _f_arms_and_assigner(model, train_data, eval_data, B, cap_buffer):
 # === Block B: train all methods ==============================================
 
 def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
-                   f_tau=0.03, cap_buffer=0.92):
+                   f_tau=0.03, cap_buffer=0.92, alt_inner_freq=5):
     """Return (policies, arms_train, arms_eval).
 
     `policies` is method -> (rng, person_idx) -> arm (for the simulator).
@@ -118,9 +119,34 @@ def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
     arms_eval["F"] = a_eval_F
     policies["F"] = assigner_F
 
-    for method in S2_METHODS[:4]:    # linear, lasso, tree, knn (skip dr)
-        if method not in {"linear", "lasso", "knn"}:
-            continue
+    print(f"[train] Gs (scipy + IFT, convex dual)  tau={TAU}  cap_buffer={cap_buffer}")
+    model_Gs, mu_Gs, _ = train_GF(
+        kind="Gs", train_data=train_data,
+        D=D, T=T, tau=TAU, b=B,
+        steps=steps, lr=lr, log_every=max(1, steps), seed=seed,
+    )
+    a_train_Gs, a_eval_Gs, assigner_Gs = _f_arms_and_assigner(
+        model_Gs, train_data, eval_data, B, cap_buffer,
+    )
+    arms_train["Gs"] = a_train_Gs
+    arms_eval["Gs"] = a_eval_Gs
+    policies["Gs"] = assigner_Gs
+
+    print(f"[train] Alt (BCD, inner_freq={alt_inner_freq})  tau={f_tau_use}  "
+          f"cap_buffer={cap_buffer}")
+    model_Alt, mu_Alt, _ = train_alt(
+        train_data=train_data, D=D, T=T, tau=f_tau_use, b=B,
+        outer_steps=steps, inner_freq=alt_inner_freq, lr=lr,
+        log_every=max(1, steps), seed=seed,
+    )
+    a_train_Alt, a_eval_Alt, assigner_Alt = _f_arms_and_assigner(
+        model_Alt, train_data, eval_data, B, cap_buffer,
+    )
+    arms_train["Alt"] = a_train_Alt
+    arms_eval["Alt"] = a_eval_Alt
+    policies["Alt"] = assigner_Alt
+
+    for method in S2_METHODS:    # linear, lasso, tree, knn, dr
         print(f"[train] S2-{method}")
         outcome_models = fit_outcome_models(
             X_train=train_data["X"],
@@ -240,6 +266,9 @@ def parse_args():
                    default=[100, 150, 200, 270, 370, 500, 700, 950, 1300,
                             1800, 2400, 3300, 4500, 6100, 8300, 11300,
                             15400, 20900, 28400, 30000])
+    p.add_argument("--n-pcts", type=float, nargs="+", default=None,
+                   help="Percentages of the train split to sweep (e.g. "
+                        "--n-pcts 10 20 ... 100). Overrides --n-values.")
     p.add_argument("--criteo-subsample", type=int, default=0,
                    help="Random subsample size from the source file before "
                         "train/eval splitting. 0 = use the whole file.")
@@ -259,6 +288,9 @@ def parse_args():
     p.add_argument("--split-seed", type=int, default=0)
     p.add_argument("--f-tau", type=float, default=0.03)
     p.add_argument("--cap-buffer", type=float, default=0.92)
+    p.add_argument("--alt-inner-freq", type=int, default=5,
+                   help="Outer steps between inner mu re-solves in the Alt "
+                        "(block-coordinate) method.")
     p.add_argument("--out-csv", type=str, default="results/criteo_sweep.csv")
     p.add_argument("--out-png", type=str, default="results/criteo_sweep.png")
     p.add_argument("--methods", type=str, nargs="+", default=None,
@@ -303,8 +335,16 @@ def main():
 
     n_eval = len(eval_data["T"])
 
+    if args.n_pcts is not None:
+        n_train_full = len(train_full["T"])
+        n_values = [max(1, int(round(n_train_full * p / 100.0))) for p in args.n_pcts]
+        print(f"[main] n_pcts={args.n_pcts}  -> n_values={n_values}  "
+              f"(train_full={n_train_full})")
+    else:
+        n_values = args.n_values
+
     rows = []
-    for N in args.n_values:
+    for N in n_values:
         print(f"\n========== N = {N} ==========")
         td = _subsample(train_full, N, seed=args.split_seed * 1000 + N)
         t0 = time.time()
@@ -314,6 +354,7 @@ def main():
             T=T, D=D, TAU=TAU, B=B,
             steps=args.steps, lr=args.lr, seed=args.train_seed,
             f_tau=args.f_tau, cap_buffer=args.cap_buffer,
+            alt_inner_freq=args.alt_inner_freq,
         )
         if args.methods is not None:
             missing = [m for m in args.methods if m not in policies]
@@ -371,6 +412,8 @@ def main():
                               values="ipw_val_mean").sort_index()
     ipw_train_pivot = agg.pivot(index="N", columns="method",
                                 values="ipw_train_mean").sort_index()
+    unserved_pivot = (100.0 * agg.pivot(index="N", columns="method",
+                                        values="frac_unserved_mean")).sort_index()
 
     print("\n" + "=" * 100)
     print("Criteo N-SWEEP: IPW policy value (validation, P(visit) basis)")
@@ -391,6 +434,12 @@ def main():
                            "display.width", 200):
         print(wait_pivot.to_string())
     print("=" * 100)
+    print("Criteo N-SWEEP: unserved (%)")
+    print("=" * 100)
+    with pd.option_context("display.float_format", lambda x: f"{x:7.2f}",
+                           "display.width", 200):
+        print(unserved_pivot.to_string())
+    print("=" * 100)
 
     if args.out_csv:
         out_dir = os.path.dirname(args.out_csv)
@@ -403,8 +452,8 @@ def main():
         out_dir = os.path.dirname(args.out_png)
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
-        method_order = ["random", "treat_all", "F"] + [
-            f"S2-{m}" for m in ("linear", "lasso", "knn")
+        method_order = ["random", "treat_all", "Gs", "F", "Alt"] + [
+            f"S2-{m}" for m in S2_METHODS
         ]
         methods_present = [m for m in method_order
                            if m in agg["method"].values]

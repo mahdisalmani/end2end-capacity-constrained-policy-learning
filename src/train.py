@@ -6,7 +6,7 @@ import torch
 
 from .models import MLPScore
 from .policy import softmax_policy, ipw_value
-from .inner_G import mu_of_M_G
+from .inner_G import mu_of_M_G, mu_of_M_G_scipy, reset_G_state
 from .inner_F import mu_of_M_F, reset_F_state
 
 
@@ -22,6 +22,11 @@ def make_mu_layer(kind, b, tau):
     """Return a callable M -> mu* for the chosen inner formulation."""
     if kind == "G":
         return mu_of_M_G
+
+    if kind == "Gs":
+        reset_G_state()
+        b_t = b if torch.is_tensor(b) else torch.tensor(b)
+        return lambda M: mu_of_M_G_scipy(M, b_t, tau)
 
     if kind == "F":
         reset_F_state()

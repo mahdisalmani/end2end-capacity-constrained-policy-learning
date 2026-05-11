@@ -12,6 +12,8 @@ import warnings
 
 import numpy as np
 import cvxpy as cp
+import torch
+from torch import nn
 
 from sklearn.linear_model import LinearRegression, LassoCV
 from sklearn.tree import DecisionTreeRegressor
@@ -20,6 +22,59 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 
 from .evaluation import evaluate_policy
+
+
+class _MLPRegressor:
+    """Per-arm scalar MLP regressor with the same trunk shape as MLPScore
+    (Linear(d_in,64)-Tanh-Linear(64,64)-Tanh-Linear(64,64)-Tanh-Linear(64,1)),
+    trained with Adam + MSE. Inputs are standardized; sklearn-style fit/predict
+    interface so it slots into the existing `models[t].predict(X)` loop."""
+
+    def __init__(self, hidden=64, steps=500, lr=5e-3, weight_decay=0.0, seed=0):
+        self.hidden = int(hidden)
+        self.steps = int(steps)
+        self.lr = float(lr)
+        self.weight_decay = float(weight_decay)
+        self.seed = int(seed)
+        self._scaler = StandardScaler()
+        self._net = None
+        self._dtype = torch.float64
+
+    def fit(self, X, y):
+        torch.manual_seed(self.seed)
+        Xs = self._scaler.fit_transform(np.asarray(X, dtype=np.float64))
+        y = np.asarray(y, dtype=np.float64).reshape(-1)
+        d_in = Xs.shape[1]
+        h = self.hidden
+
+        self._net = nn.Sequential(
+            nn.Linear(d_in, h), nn.Tanh(),
+            nn.Linear(h, h),    nn.Tanh(),
+            nn.Linear(h, h),    nn.Tanh(),
+            nn.Linear(h, 1),
+        ).to(self._dtype)
+        for m in self._net.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.zeros_(m.bias)
+
+        X_t = torch.tensor(Xs, dtype=self._dtype)
+        y_t = torch.tensor(y,  dtype=self._dtype).unsqueeze(1)
+        opt = torch.optim.Adam(self._net.parameters(), lr=self.lr,
+                               weight_decay=self.weight_decay)
+        for _ in range(self.steps):
+            opt.zero_grad()
+            pred = self._net(X_t)
+            loss = ((pred - y_t) ** 2).mean()
+            loss.backward()
+            opt.step()
+        return self
+
+    def predict(self, X):
+        Xs = self._scaler.transform(np.asarray(X, dtype=np.float64))
+        with torch.no_grad():
+            out = self._net(torch.tensor(Xs, dtype=self._dtype)).cpu().numpy()
+        return out.reshape(-1)
 
 
 def fit_outcome_models(X_train, T_train, Y_train, T, method, E_train=None):
@@ -108,6 +163,8 @@ def fit_outcome_models(X_train, T_train, Y_train, T, method, E_train=None):
         elif method == "knn":
             k = min(10, max(1, mask.sum() - 1))
             reg = KNeighborsRegressor(n_neighbors=k)
+        elif method == "mlp":
+            reg = _MLPRegressor(hidden=64, steps=500, lr=5e-3, seed=int(t))
         else:
             raise ValueError(f"Unknown method: {method}")
 
@@ -178,6 +235,77 @@ def recover_policy(M_hat, mu_hat):
     pi_onehot[np.arange(N_local), assignments] = 1.0
 
     return assignments, pi_onehot
+
+
+def run_dual_method_with_eval_mu(method_name, train_data, eval_data, m_hat_eval,
+                                 T, b, verbose_lp=False):
+    """
+    Run an S2 method and return BOTH the vanilla result (μ fit on train) and
+    the μ-variant result (μ fit on eval), sharing the same fitted outcome
+    models.
+
+    Returns a list [vanilla_result, mu_result], in that order.
+    """
+    method_name = method_name.lower()
+    tag_vanilla = f"S2-{method_name}"
+    tag_mu = f"S2-{method_name}-mu"
+
+    t0 = time.time()
+
+    models = fit_outcome_models(
+        X_train=train_data["X"],
+        T_train=train_data["T"],
+        Y_train=train_data["Y"],
+        T=T, method=method_name,
+        E_train=train_data["E"],
+    )
+
+    M_hat_train = get_mhat_matrix(models, train_data["X"], T)
+    M_hat_eval_method = get_mhat_matrix(models, eval_data["X"], T)
+
+    # ----- vanilla: μ fit on train -----
+    mu_train, _, status_t, lp_time_t = solve_dual_lp(
+        M_hat_train, b, verbose=verbose_lp,
+    )
+    a_eval_v, pi_eval_v = recover_policy(M_hat_eval_method, mu_train)
+    a_train_v, pi_train_v = recover_policy(M_hat_train, mu_train)
+    res_v = evaluate_policy(
+        pi_onehot_eval=pi_eval_v, assignments_eval=a_eval_v,
+        pi_onehot_train=pi_train_v, assignments_train=a_train_v,
+        train_data=train_data, eval_data=eval_data,
+        m_hat_eval=m_hat_eval, b=b, tag=tag_vanilla,
+    )
+    res_v.update({
+        "method": tag_vanilla,
+        "mu": mu_train,
+        "lp_status": status_t,
+        "lp_time": lp_time_t,
+    })
+
+    # ----- μ-variant: μ fit on eval -----
+    mu_eval, _, status_e, lp_time_e = solve_dual_lp(
+        M_hat_eval_method, b, verbose=verbose_lp,
+    )
+    a_eval_m, pi_eval_m = recover_policy(M_hat_eval_method, mu_eval)
+    a_train_m, pi_train_m = recover_policy(M_hat_train, mu_eval)
+    res_m = evaluate_policy(
+        pi_onehot_eval=pi_eval_m, assignments_eval=a_eval_m,
+        pi_onehot_train=pi_train_m, assignments_train=a_train_m,
+        train_data=train_data, eval_data=eval_data,
+        m_hat_eval=m_hat_eval, b=b, tag=tag_mu,
+    )
+    res_m.update({
+        "method": tag_mu,
+        "mu": mu_eval,
+        "lp_status": status_e,
+        "lp_time": lp_time_e,
+    })
+
+    total_time = time.time() - t0
+    res_v["total_time"] = total_time
+    res_m["total_time"] = total_time
+
+    return [res_v, res_m]
 
 
 def run_dual_method(method_name, train_data, eval_data, m_hat_eval,

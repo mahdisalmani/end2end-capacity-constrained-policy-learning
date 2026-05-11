@@ -31,12 +31,38 @@ METRIC_LABELS = {
 }
 
 TRAINED_METHODS = [
+    "G",
     "F",
-    "S2-linear",
     "S2-lasso",
     "S2-tree",
     "S2-knn",
 ]
+
+# Display names used in legends (data still keyed by "G"/"F"/"S2-*" internally).
+METHOD_LABEL = {
+    "G":      "logsum",
+    "G-mu":   "logsum-mu",
+    "F":      "softmax",
+    "F-mu":   "softmax-mu",
+}
+
+# Fixed colormap slots so adding/removing methods doesn't shift colors.
+METHOD_COLOR_IDX = {
+    "G":         0,
+    "G-mu":      0,
+    "F":         1,
+    "F-mu":      1,
+    "S2-linear":     2,
+    "S2-linear-mu":  2,
+    "S2-lasso":      3,
+    "S2-lasso-mu":   3,
+    "S2-tree":       4,
+    "S2-tree-mu":    4,
+    "S2-knn":        5,
+    "S2-knn-mu":     5,
+    "S2-dr":         6,
+    "S2-dr-mu":      6,
+}
 REFERENCE_METHODS = {}
 
 
@@ -53,16 +79,13 @@ def _summarise(df, method, metric):
 def _plot_metric(df, metric, ax):
     cmap = plt.get_cmap("tab10")
 
-    # Reserve cmap(0) for G/G-mu so the F-and-onwards colors stay consistent
-    # whether or not G is in TRAINED_METHODS.
-    g_aliases = {"G", "G-mu"}
-    for i, method in enumerate(TRAINED_METHODS):
+    for method in TRAINED_METHODS:
         g = _summarise(df, method, metric)
         if g is None:
             continue
-        color = cmap(i) if method in g_aliases or "G" in TRAINED_METHODS \
-            or "G-mu" in TRAINED_METHODS else cmap(i + 1)
-        ax.plot(g["N"], g["mean"], marker="o", color=color, label=method, lw=1.6)
+        color = cmap(METHOD_COLOR_IDX.get(method, 0))
+        label = METHOD_LABEL.get(method, method)
+        ax.plot(g["N"], g["mean"], marker="o", color=color, label=label, lw=1.6)
 
     for method, style in REFERENCE_METHODS.items():
         g = _summarise(df, method, metric)
