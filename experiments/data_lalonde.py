@@ -24,8 +24,9 @@ from urllib.request import urlretrieve
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
+
+from experiments.common import fit_logistic_propensity
 
 
 DEHEJIA_URLS = {
@@ -63,13 +64,8 @@ def _load_raw(cache_dir=DEFAULT_CACHE):
     return df
 
 
-def _fit_propensity(X, T, clip=(0.05, 0.95)):
-    """e(x) = P(T = 1 | X = x), via logistic regression on full data,
-    clipped to keep IPW weights bounded."""
-    lr = LogisticRegression(C=1.0, max_iter=2000)
-    lr.fit(X, T)
-    e1 = lr.predict_proba(X)[:, 1]
-    return np.clip(e1, clip[0], clip[1])
+# Pooled logistic propensity fit (canonical impl: experiments.common).
+_fit_propensity = fit_logistic_propensity
 
 
 def load_lalonde(

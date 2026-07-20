@@ -1,7 +1,7 @@
 """
-N-sweep experiment on the LaLonde NSW + PSID-1 real dataset.
+N-sweep experiment on the LaLonde NSW + PSID-1 real dataset (single-process).
 
-Same harness as `experiments/n_sweep_experiment.py` but:
+Harness:
   - Loads real data via `experiments.data_lalonde.load_lalonde`.
   - Train / eval is a fixed 70 / 30 split of the LaLonde data.
   - Per `--n-values N`, subsample N rows from the train split and
@@ -12,6 +12,9 @@ Same harness as `experiments/n_sweep_experiment.py` but:
   - Replaces `oracle_greedy_no_cap` with `treat_all` (always assign
     T=1), since oracle-greedy needs counterfactual Y_pot.
 
+The multi-seed, multiprocessing version is `experiments.sweep_lalonde`.
+Shared machinery lives in `experiments.common`.
+
 Run:
     python -m experiments.n_sweep_lalonde --n-values 100 200 500 1000 1800
 """
@@ -19,6 +22,7 @@ Run:
 import argparse
 import os
 import time
+import zlib
 
 import matplotlib
 
@@ -29,58 +33,48 @@ import pandas as pd
 import torch
 
 from src.train import train_GF
-from src.s2_dual import (
-    fit_outcome_models,
-    get_mhat_matrix,
-    solve_dual_lp,
-)
 
-from experiments.real_queue_experiment import (
-    make_random_assigner,
-    make_s2_assigner,
-    make_streams,
-    simulate,
+from experiments.common import (
     aggregate_one,
-    S2_METHODS,
+    arms_and_assigner_from_model,
+    ipw_policy_value,
+    make_random_assigner,
+    make_streams,
+    make_treat_all_assigner,
+    precompute_arms,
+    s2_arms_and_assigner,
+    simulate,
+    subsample_rows as _subsample,
 )
 from experiments.data_lalonde import load_lalonde
 
 
-# === Block A: assigners ======================================================
-
-def make_treat_all_assigner():
-    """Always pick the treatment arm (T=1)."""
-    def assign(rng, person_idx):
-        return 1
-    return assign
+# S2 baselines run on LaLonde. tree and dr are skipped: with N as small as
+# a few hundred, the per-arm tree overfits pathologically and the DR
+# pseudo-outcome LassoCV is unstable.
+LALONDE_S2_METHODS = ("linear", "lasso", "knn")
 
 
 def make_gf_assigner(model, mu_train, eval_data, tau, B, train_data,
                      cap_buffer=0.92):
-    """Deterministic deployment for F.
-
-    Re-solves the dual LP on F's M(X_train) with cap vector
-    `cap_buffer * B` (default 0.92 -> sub-cap), then deploys
-    `argmax(M_eval - mu_calibrated)`. No peek at the eval distribution.
-    """
-    B_arr = np.asarray(B, dtype=float)
-    B_shrunk = cap_buffer * B_arr
-
-    with torch.no_grad():
-        M_train = model(torch.tensor(train_data["X"])).numpy()
-    mu_calibrated, _, _, _ = solve_dual_lp(M_train, B_shrunk, verbose=False)
-
-    with torch.no_grad():
-        M_eval = model(torch.tensor(eval_data["X"])).numpy()
-    a_star = (M_eval - mu_calibrated[None, :]).argmax(axis=1)
-
-    def assign(rng, person_idx):
-        return int(a_star[person_idx])
-
-    return assign
+    """Deterministic deployment for F: argmax(M - mu) with the dual LP
+    re-solved on train scores at `cap_buffer * B`. See
+    `experiments.common.arms_and_assigner_from_model` (mu_train and tau are
+    accepted for signature compatibility; deployment uses the calibrated
+    LP prices, not the training-time mu)."""
+    _, _, assigner = arms_and_assigner_from_model(
+        model, train_data, eval_data, B, cap_buffer,
+    )
+    return assigner
 
 
-# === Block B: train all methods ==============================================
+def _stable_seed(*parts):
+    """Deterministic 32-bit seed from string parts (unlike builtin hash(),
+    which is salted per process and breaks run-to-run reproducibility)."""
+    return zlib.crc32("|".join(map(str, parts)).encode())
+
+
+# === Block A: train all methods ==============================================
 
 def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
                    f_tau=0.03, cap_buffer=0.92):
@@ -100,53 +94,16 @@ def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
         train_data=train_data, cap_buffer=cap_buffer,
     )
 
-    for method in S2_METHODS[:4]:    # linear, lasso, tree, knn (skip dr)
-        if method not in {"linear", "lasso", "knn"}:
-            continue
+    for method in LALONDE_S2_METHODS:
         print(f"[train] S2-{method}")
-        outcome_models = fit_outcome_models(
-            X_train=train_data["X"],
-            T_train=train_data["T"],
-            Y_train=train_data["Y"],
-            T=T, method=method,
-            E_train=train_data["E"],
-        )
-        M_hat_train = get_mhat_matrix(outcome_models, train_data["X"], T)
-        mu_hat, _, _, _ = solve_dual_lp(M_hat_train, B, verbose=False)
-        policies[f"S2-{method}"] = make_s2_assigner(
-            outcome_models, mu_hat, eval_data, T,
+        _, _, policies[f"S2-{method}"] = s2_arms_and_assigner(
+            train_data, eval_data, T, B, method,
         )
 
     return policies
 
 
-# === Block C: IPW policy value ===============================================
-
-def precompute_arms(assigner, n_eval, rng_seed=0):
-    """Apply assigner to every eval index. RNG is shared across all
-    calls so stochastic policies (random) get a single coherent draw."""
-    rng = np.random.default_rng(rng_seed)
-    return np.fromiter(
-        (assigner(rng, i) for i in range(n_eval)),
-        dtype=np.int64, count=n_eval,
-    )
-
-
-def ipw_policy_value(arms_eval, eval_data):
-    """V_IPW = (1 / N_eval) * sum_i  Y_i * 1{a_eval[i] = T_i} / e_T_i.
-
-    For deterministic policies the indicator is 0/1. e_T_i is the
-    propensity of the OBSERVED treatment, already clipped in the
-    LaLonde loader.
-    """
-    Y = eval_data["Y"]
-    T = eval_data["T"]
-    e_T = eval_data["e_T"]
-    matched = (arms_eval == T).astype(np.float64)
-    return float((Y * matched / e_T).mean())
-
-
-# === Block D: plot ===========================================================
+# === Block B: plot ===========================================================
 
 def plot_results(agg, methods, out_png):
     """1x3 panel: mean wait time, IPW policy value, unserved %.
@@ -204,7 +161,7 @@ def plot_results(agg, methods, out_png):
     print(f"[plot] wrote {out_png}")
 
 
-# === Block E: main ===========================================================
+# === Block C: main ===========================================================
 
 def parse_args():
     p = argparse.ArgumentParser(description="LaLonde N-sweep (real data).")
@@ -227,22 +184,6 @@ def parse_args():
     p.add_argument("--methods", type=str, nargs="+", default=None,
                    help="Subset of method names to keep in plot/table.")
     return p.parse_args()
-
-
-_PER_ROW_KEYS = {"X", "T", "Y", "e_T", "E", "Y_pot"}
-
-
-def _subsample(train_data, n, seed):
-    """Take a permuted subset of n rows from train_data. Beta / Alpha
-    are not per-row; pass them through unchanged."""
-    rng = np.random.default_rng(seed)
-    N_train = len(train_data["T"])
-    n = min(n, N_train)
-    idx = rng.permutation(N_train)[:n]
-    return {
-        k: (v[idx] if k in _PER_ROW_KEYS else v)
-        for k, v in train_data.items()
-    }
 
 
 def main():
@@ -286,7 +227,7 @@ def main():
         ipw_per_method = {}
         for method, assigner in policies.items():
             arms_eval = precompute_arms(
-                assigner, n_eval, rng_seed=hash((method, "ipw")) & 0xFFFFFFFF)
+                assigner, n_eval, rng_seed=_stable_seed(method, "ipw"))
             ipw_per_method[method] = ipw_policy_value(arms_eval, eval_data)
             print(f"  {method:25s}  IPW = {ipw_per_method[method]:8.3f}")
 
@@ -356,7 +297,7 @@ def main():
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
         method_order = ["random", "treat_all", "F"] + [
-            f"S2-{m}" for m in ("linear", "lasso", "knn")
+            f"S2-{m}" for m in LALONDE_S2_METHODS
         ]
         methods_present = [m for m in method_order
                            if m in agg["method"].values]

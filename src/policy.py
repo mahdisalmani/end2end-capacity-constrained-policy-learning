@@ -1,4 +1,4 @@
-"""Softmax policy + IPW and oracle value functionals."""
+"""Softmax policy + IPW / DR / oracle value functionals."""
 
 import numpy as np
 import torch
@@ -39,11 +39,15 @@ def dr_value_np(pi, T_obs, Y, e_T, m_hat):
     return float(direct + correction)
 
 
-def oracle_value_soft(pi_np, Y_pot_np):
-    """Oracle value of a soft policy given counterfactual outcomes."""
+def oracle_value(pi_np, Y_pot_np):
+    """Oracle value of a policy given counterfactual outcomes.
+
+    Works for soft policies (rows on the simplex) and one-hot policies alike:
+    V = mean_i sum_t pi_{t,i} * Y^t_i.
+    """
     return float((pi_np * Y_pot_np).sum(axis=1).mean())
 
 
-def oracle_value_onehot(pi_onehot, Y_pot):
-    """Oracle value of a one-hot policy given counterfactual outcomes."""
-    return float((pi_onehot * Y_pot).sum(axis=1).mean())
+# Backward-compatible aliases (soft and one-hot cases share one formula).
+oracle_value_soft = oracle_value
+oracle_value_onehot = oracle_value

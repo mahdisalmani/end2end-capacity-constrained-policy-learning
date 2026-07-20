@@ -1,17 +1,25 @@
 """
-Real-queue deployment experiment.
+Real-queue deployment experiment (snapshot-based, softmax-sampling G/F).
 
-Phase 1: train every policy method (random, oracle-greedy-no-cap, G, F, and the
-five S2 variants) on the train snapshot. Artifacts are then frozen.
+Phase 1: train every policy method (random, oracle-greedy-no-cap, G, F, and
+the five S2 variants) on the train snapshot produced by `generate_data.py`.
+Artifacts are then frozen.
 
-Phase 2: simulate real-world deployment as a queueing system. People arrive as
-a Poisson process at rate `lambda_people`. Per-arm resources arrive as
-independent Poisson processes at rate `b_t * lambda_people`, so a method that
-assigns more than `b_t` mass to arm t will see arm-t's queue grow without
-bound. Idle resources are held in inventory until claimed.
+Phase 2: simulate real-world deployment as a queueing system. People arrive
+as a Poisson process at rate `lambda_people`. Per-arm resources arrive as
+independent Poisson processes at rate `b_t * lambda_people`, so a method
+that assigns more than `b_t` mass to arm t will see arm-t's queue grow
+without bound. Idle resources are held in inventory until claimed.
 
-For each (method, sim_seed) we report total waiting time and average oracle
-outcome for served people, plus the number unserved (censored at T_max).
+DEPLOYMENT NOTE: this script deploys G/F by *sampling* from the softmax
+policy (`make_gf_assigner` below) with no capacity buffer — the project's
+original stochastic deployment convention. The newer sweep/cell harnesses
+instead deploy argmax(M - mu) with a sub-capacity buffer
+(`experiments.common.arms_and_assigner_from_model`), so wait-time numbers
+from this script are NOT directly comparable to theirs.
+
+The queue simulator itself lives in `experiments.common`; this module
+re-exports it for backward compatibility.
 
 Run:
     python -m experiments.real_queue_experiment
@@ -21,7 +29,6 @@ Run:
 import argparse
 import os
 import time
-from collections import deque
 
 import numpy as np
 import pandas as pd
@@ -37,30 +44,27 @@ from src.s2_dual import (
     solve_dual_lp,
 )
 
-
-S2_METHODS = ["linear", "lasso", "tree", "knn", "dr"]
-
-
-# === Block A: trained-policy assignment functions ============================
-# Every assigner has signature (rng, person_idx_in_eval) -> arm. Trained
-# artifacts are precomputed at construction time so the inner simulation loop
-# does no torch / sklearn calls.
-
-def make_random_assigner(T):
-    def assign(rng, person_idx):
-        return int(rng.integers(T))
-    return assign
-
-
-def make_oracle_greedy_assigner(eval_data):
-    a_star = eval_data["Y_pot"].argmax(axis=1)
-    def assign(rng, person_idx):
-        return int(a_star[person_idx])
-    return assign
+# Shared primitives (canonical home: experiments/common.py). Re-exported
+# here because many older scripts import them from this module.
+from experiments.common import (  # noqa: F401  (re-exports)
+    S2_METHODS,
+    aggregate_one,
+    make_oracle_greedy_assigner,
+    make_random_assigner,
+    make_s2_assigner,
+    make_streams,
+    simulate,
+)
 
 
 def make_gf_assigner(model, mu_train, eval_data, tau):
-    """Sample from softmax((M(x) - mu)/tau). Cumulative probs precomputed."""
+    """Sample from softmax((M(x) - mu)/tau). Cumulative probs precomputed.
+
+    Stochastic deployment (this script only): expected allocation equals the
+    softmax policy mass, so caps can be transiently exceeded — the queues
+    absorb the excess. The sweep harnesses use the deterministic
+    argmax + cap-buffer deployment instead.
+    """
     with torch.no_grad():
         M = model(torch.tensor(eval_data["X"])).numpy()
     logits = (M - mu_train[None, :]) / tau
@@ -73,15 +77,6 @@ def make_gf_assigner(model, mu_train, eval_data, tau):
         u = rng.random()
         return int(np.searchsorted(cumprobs[person_idx], u))
 
-    return assign
-
-
-def make_s2_assigner(outcome_models, mu_hat, eval_data, T):
-    """Deterministic argmax over (m_hat(x) - mu_hat)."""
-    M_hat = get_mhat_matrix(outcome_models, eval_data["X"], T)
-    a_star = (M_hat - mu_hat[None, :]).argmax(axis=1)
-    def assign(rng, person_idx):
-        return int(a_star[person_idx])
     return assign
 
 
@@ -135,140 +130,6 @@ def train_all_policies(train_data, eval_data, cfg, steps, lr, seed):
     return policies
 
 
-# === Block B: arrival streams ================================================
-# One paired stream per sim_seed, shared across all methods so the method
-# delta is not contaminated by Poisson noise.
-
-def make_streams(eval_data, N_sim, lambda_people, B, max_time_mult, seed):
-    rng = np.random.default_rng(seed)
-    N_eval = eval_data["X"].shape[0]
-    T = len(B)
-
-    inter = rng.exponential(scale=1.0 / lambda_people, size=N_sim)
-    people_t = np.cumsum(inter)
-    person_idx = rng.integers(0, N_eval, size=N_sim)
-
-    T_max = float(people_t[-1] * max_time_mult)
-
-    resource_t = []
-    for t in range(T):
-        rate = float(B[t]) * lambda_people
-        if rate <= 0.0:
-            resource_t.append(np.empty(0, dtype=np.float64))
-            continue
-        expected = rate * T_max
-        n_init = max(16, int(expected + 8.0 * np.sqrt(expected) + 16.0))
-        ts = np.cumsum(rng.exponential(scale=1.0 / rate, size=n_init))
-        while ts[-1] < T_max:
-            extra = np.cumsum(rng.exponential(scale=1.0 / rate, size=n_init))
-            ts = np.concatenate([ts, ts[-1] + extra])
-        ts = ts[ts <= T_max]
-        resource_t.append(ts)
-
-    return people_t, person_idx, T_max, resource_t
-
-
-# === Block C: discrete-event simulator =======================================
-def simulate(people_t, person_idx, resource_t, assigner, T, T_max,
-             eval_data, sim_seed):
-    """One queueing simulation. Returns dict of per-person arrays of length N_sim."""
-    Y_pot = eval_data["Y_pot"]
-    rng = np.random.default_rng(sim_seed * 9_973_337 + 1)
-    N_sim = len(people_t)
-
-    inventory = np.zeros(T, dtype=np.int64)
-    queues = [deque() for _ in range(T)]
-    next_r_idx = np.zeros(T, dtype=np.int64)
-
-    arms = np.zeros(N_sim, dtype=np.int64)
-    waits = np.zeros(N_sim, dtype=np.float64)
-    served = np.zeros(N_sim, dtype=bool)
-    outcomes = np.full(N_sim, np.nan, dtype=np.float64)
-
-    def serve_resources_until(t_now):
-        for a in range(T):
-            ts = resource_t[a]
-            idx = next_r_idx[a]
-            n = len(ts)
-            while idx < n and ts[idx] <= t_now:
-                t_r = ts[idx]
-                idx += 1
-                if queues[a]:
-                    t_arr, k, p_idx = queues[a].popleft()
-                    waits[k] = t_r - t_arr
-                    served[k] = True
-                    arms[k] = a
-                    outcomes[k] = Y_pot[p_idx, a]
-                else:
-                    inventory[a] += 1
-            next_r_idx[a] = idx
-
-    for k in range(N_sim):
-        t_p = people_t[k]
-        serve_resources_until(t_p)
-
-        a = assigner(rng, person_idx[k])
-        if inventory[a] > 0:
-            inventory[a] -= 1
-            arms[k] = a
-            waits[k] = 0.0
-            served[k] = True
-            outcomes[k] = Y_pot[person_idx[k], a]
-        else:
-            queues[a].append((t_p, k, person_idx[k]))
-
-    serve_resources_until(T_max)
-
-    for a in range(T):
-        while queues[a]:
-            t_arr, k, p_idx = queues[a].popleft()
-            arms[k] = a
-            waits[k] = T_max - t_arr
-            served[k] = False
-
-    return {
-        "arm": arms,
-        "person_idx": person_idx,
-        "wait": waits,
-        "served": served,
-        "oracle_outcome": outcomes,
-    }
-
-
-# === Block D: aggregate + report =============================================
-
-def aggregate_one(records, method, sim_seed, B, N_sim, sim_wall):
-    arms = records["arm"]
-    waits = records["wait"]
-    served = records["served"]
-    outcomes = records["oracle_outcome"]
-    T = len(B)
-
-    n_unserved = int((~served).sum())
-    served_waits = waits[served]
-    served_outcomes = outcomes[served]
-
-    row = {
-        "method": method,
-        "sim_seed": sim_seed,
-        "N_sim": N_sim,
-        "total_wait": float(waits.sum()),
-        "mean_wait_all": float(waits.mean()),
-        "mean_wait_served": (float(served_waits.mean())
-                             if served_waits.size > 0 else float("nan")),
-        "mean_oracle_outcome_served": (float(served_outcomes.mean())
-                                       if served_outcomes.size > 0 else float("nan")),
-        "num_unserved": n_unserved,
-        "frac_unserved": n_unserved / N_sim,
-        "sim_wall_s": sim_wall,
-    }
-    counts = np.bincount(arms, minlength=T)
-    fracs = counts / N_sim
-    for t in range(T):
-        row[f"alloc_{t}"] = float(fracs[t])
-    return row
-
-
 def print_summary(df, N_sim, num_sim_seeds, B):
     agg = df.groupby("method").agg(
         total_wait_mean=("total_wait", "mean"),
@@ -293,7 +154,6 @@ def print_summary(df, N_sim, num_sim_seeds, B):
     print("=" * 100)
 
 
-# === Block E: main ===========================================================
 def parse_args():
     p = argparse.ArgumentParser(description="Real-queue deployment experiment.")
     p.add_argument("--N-sim", type=int, default=10_000, dest="N_sim")

@@ -1,4 +1,10 @@
 """
+[LEGACY — superseded by the queue-sim cell/sweep pipeline; kept for reproducing the old results/sweep.csv artifacts]
+CAVEATS (kept as-is, this script is retired):
+  - the train split uses seed=config.TRAIN_SEED for EVERY N (one data
+    realization per sweep); --train-seed seeds only the model init.
+  - deployment here is argmax+cap-buffer via its own make_gf_assigner.
+
 N-sweep real-queue experiment (no G).
 
 For each training-set size N in --n-values, generate a fresh train split
@@ -31,7 +37,7 @@ import torch
 
 from src import config
 from src.train import train_GF
-from experiments.data_v2 import generate_data_v2 as generate_data
+from experiments.data_nonnested import generate_data_nonnested as generate_data
 from src.s2_dual import (
     fit_outcome_models,
     get_mhat_matrix,

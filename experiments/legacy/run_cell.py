@@ -1,4 +1,9 @@
 """
+[LEGACY — superseded by the queue-sim cell/sweep pipeline; kept for reproducing the old results/sweep.csv artifacts]
+NOTE: the *-mu variants computed here re-solve mu on EVAL scores (an
+eval-information peek); pass --skip-mu to drop them. See the final
+report's bilevel-eval convention: mu is part of the trained policy.
+
 Single-cell worker for the (N, seed) sweep.
 
 run_one_cell(N, seed) -> list[dict]:

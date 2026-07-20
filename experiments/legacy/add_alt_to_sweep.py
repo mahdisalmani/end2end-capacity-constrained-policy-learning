@@ -1,4 +1,8 @@
 """
+[LEGACY — superseded by the queue-sim cell/sweep pipeline; kept for reproducing the old results/sweep.csv artifacts]
+NOTE: Alt is now a first-class method in every run_cell_* cell; this
+one-off backfill script predates that.
+
 Add the Alt (alternating block-coordinate) method to the existing Criteo
 sweep CSV/plot without re-running F + S2.
 
@@ -35,9 +39,9 @@ from experiments.real_queue_experiment import (
 
 
 def main(
-    in_csv="results/criteo_pct_sweep.csv",
-    out_csv="results/criteo_pct_sweep_alt.csv",
-    out_png="results/criteo_pct_sweep_alt.png",
+    in_csv="results/criteo_sweep.csv",
+    out_csv="results/criteo_sweep_alt.csv",
+    out_png="results/criteo_sweep_alt.png",
     criteo_variant="10pct",
     criteo_subsample=50000,
     split_seed=0,
@@ -115,7 +119,9 @@ def main(
     merged = merged[base_df.columns.tolist() +
                     [c for c in merged.columns if c not in base_df.columns]]
 
-    os.makedirs(os.path.dirname(out_csv), exist_ok=True)
+    out_dir = os.path.dirname(out_csv)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     merged.to_csv(out_csv, index=False)
     print(f"[add-alt] wrote {out_csv}  ({merged.shape})")
 

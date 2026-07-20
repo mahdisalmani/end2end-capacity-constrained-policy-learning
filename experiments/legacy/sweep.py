@@ -1,4 +1,6 @@
 """
+[LEGACY — superseded by the queue-sim cell/sweep pipeline; kept for reproducing the old results/sweep.csv artifacts]
+
 Parallel sweep over (N, seed) cells.
 
 CLI:
@@ -18,8 +20,8 @@ import os
 import sys
 import time
 
-from experiments import aggregate
-from experiments.run_cell import (
+from experiments.legacy import aggregate
+from experiments.legacy.run_cell import (
     _cell_csv_path,
     _failed_path,
     run_one_cell,
@@ -71,7 +73,7 @@ def _worker(args):
 def _parse_args():
     p = argparse.ArgumentParser(description="Sweep (N, seed) grid.")
     p.add_argument("--N", type=int, nargs="+", default=DEFAULT_NS,
-                   help="Training sizes to sweep (default: 100..1000 step 100)")
+                   help="Training sizes to sweep (default: 10..50 step 10)")
     p.add_argument("--seeds", type=int, nargs="+", default=DEFAULT_SEEDS,
                    help="Seeds (default: 0..19)")
     p.add_argument("--workers", type=int, default=32,
@@ -94,7 +96,7 @@ def main():
     os.makedirs(LOGS_DIR, exist_ok=True)
     log_path = os.path.join(
         LOGS_DIR,
-        f"sweep_{dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.log",
+        f"sweep_{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.log",
     )
 
     cells = _select_cells(args.N, args.seeds, args.force, args.retry_failed)

@@ -1,121 +1,46 @@
 """
-Parallel (N=1000, seed=0..19) sweep on the non-nested synthetic DGP.
+Parallel (N, seed) sweep on the non-nested synthetic DGP
+(`experiments.data_nonnested`, config hardcoded in `run_cell_nonnested`).
+
+Default grid: N=1000, seed=0..19. Writes `results/nonnested_sweep_seeds.csv`.
 
 Run:
     python -m experiments.sweep_nonnested --seeds 20 --workers 20
 """
 
 import argparse
-import multiprocessing as mp
-import os
 import sys
-import time
 
-import numpy as np
-import pandas as pd
-
-from experiments.run_cell_nonnested import (
-    CELL_DIR,
-    _cell_csv_path,
-    load_or_build_eval_cache,
-    run_one_cell,
-)
-
-
-def _worker(args):
-    N, seed, kwargs = args
-    t0 = time.time()
-    try:
-        rows = run_one_cell(N=N, seed=seed, **kwargs)
-        wall = time.time() - t0
-        status = "ok" if rows else "FAILED"
-        return (N, seed, status, wall)
-    except Exception as e:  # noqa: BLE001
-        return (N, seed, f"EXC:{type(e).__name__}:{e}", time.time() - t0)
-
-
-def _select_cells(N_values, seeds, force):
-    cells = [(N, s) for N in N_values for s in seeds]
-    if force:
-        return sorted(cells, key=lambda ns: -ns[0])
-    pending = [(N, s) for (N, s) in cells if not os.path.exists(_cell_csv_path(N, s))]
-    pending.sort(key=lambda ns: -ns[0])
-    return pending
-
-
-def _gather(N_values, seeds):
-    paths = [_cell_csv_path(N, s) for N in N_values for s in seeds
-             if os.path.exists(_cell_csv_path(N, s))]
-    if not paths:
-        return pd.DataFrame()
-    return pd.concat([pd.read_csv(p) for p in paths], ignore_index=True)
+from experiments import sweep_core
+from experiments.run_cell_nonnested import CELL_DIR, load_or_build_eval_cache
 
 
 def _parse_args():
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(description="Parallel non-nested-DGP (N, seed) sweep.")
     p.add_argument("--n-values", type=int, nargs="+", default=[1000])
-    p.add_argument("--seeds", type=int, default=20)
-    p.add_argument("--workers", type=int, default=20)
-    p.add_argument("--steps", type=int, default=1500)
-    p.add_argument("--lr", type=float, default=5e-3)
-    p.add_argument("--f-tau", type=float, default=0.03)
-    p.add_argument("--cap-buffer", type=float, default=0.92)
-    p.add_argument("--alt-inner-freq", type=int, default=5)
-    p.add_argument("--N-sim", type=int, default=1000, dest="N_sim")
-    p.add_argument("--lambda-people", type=float, default=1.0)
-    p.add_argument("--max-time-mult", type=float, default=1.5)
-    p.add_argument("--out-csv", type=str, default="results/nonnested_sweep_seeds.csv")
-    p.add_argument("--force", action="store_true")
+    sweep_core.add_common_args(p, steps_default=1500,
+                               out_csv_default="results/nonnested_sweep_seeds.csv")
     return p.parse_args()
 
 
 def main():
     args = _parse_args()
-    os.makedirs(CELL_DIR, exist_ok=True)
 
     print("[sweep] preloading non-nested eval cache (one-shot)…", flush=True)
     eval_data = load_or_build_eval_cache()
     print(f"[sweep] nonnested eval: N={len(eval_data['T'])}, T={eval_data['Y_pot'].shape[1]}",
           flush=True)
 
-    N_values = list(args.n_values)
-    seeds = list(range(args.seeds))
-    cells = _select_cells(N_values, seeds, args.force)
-    grid = len(N_values) * len(seeds)
-    print(f"[sweep] grid {len(N_values)} N × {len(seeds)} seeds = {grid}", flush=True)
-    print(f"[sweep] {len(cells)} cells to run, {args.workers} workers", flush=True)
-
-    cell_kwargs = dict(
-        steps=args.steps, lr=args.lr,
-        f_tau=args.f_tau, cap_buffer=args.cap_buffer,
-        alt_inner_freq=args.alt_inner_freq,
-        N_sim=args.N_sim, lambda_people=args.lambda_people,
-        max_time_mult=args.max_time_mult, force=args.force,
+    sweep_core.run_sweep(
+        cell_module="experiments.run_cell_nonnested",
+        cell_dir=CELL_DIR,
+        N_values=list(args.n_values),
+        seeds=list(range(args.seeds)),
+        cell_kwargs=sweep_core.common_cell_kwargs(args),
+        workers=args.workers,
+        force=args.force,
+        out_csv=args.out_csv,
     )
-    work = [(N, s, cell_kwargs) for (N, s) in cells]
-
-    t_start = time.time()
-    if work:
-        ctx = mp.get_context("spawn")
-        with ctx.Pool(processes=args.workers, maxtasksperchild=1) as pool:
-            for i, (N, seed, status, wall) in enumerate(
-                pool.imap_unordered(_worker, work), 1
-            ):
-                elapsed = time.time() - t_start
-                print(f"[{i:4d}/{len(work)}] N={N:5d} seed={seed:3d}  "
-                      f"status={status}  cell_wall={wall:6.1f}s  "
-                      f"elapsed={elapsed:7.1f}s", flush=True)
-    else:
-        print("[sweep] all cells already cached.", flush=True)
-
-    print(f"[sweep] done in {time.time() - t_start:.1f}s", flush=True)
-
-    df = _gather(N_values, seeds)
-    if df.empty:
-        return
-    os.makedirs(os.path.dirname(args.out_csv) or ".", exist_ok=True)
-    df.to_csv(args.out_csv, index=False)
-    print(f"[sweep] wrote {args.out_csv}  shape={df.shape}", flush=True)
 
 
 if __name__ == "__main__":

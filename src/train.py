@@ -19,7 +19,14 @@ def prepare_torch_training_data(train_data):
 
 
 def make_mu_layer(kind, b, tau):
-    """Return a callable M -> mu* for the chosen inner formulation."""
+    """Return a callable M -> mu* for the chosen inner formulation.
+
+    kind:
+      "G"  — convex dual via the cached CVXPYLayer (call initialize_G_layer
+             with the training N first; the layer is size-locked to it).
+      "Gs" — convex dual via scipy L-BFGS-B + IFT (no cvxpy, any N).
+      "F"  — non-convex literal objective via scipy L-BFGS-B + IFT.
+    """
     if kind == "G":
         return mu_of_M_G
 
@@ -34,6 +41,39 @@ def make_mu_layer(kind, b, tau):
         return lambda M: mu_of_M_F(M, b_t, tau)
 
     raise ValueError(kind)
+
+
+def log_training_step(label, step, V, mu, pi, b_t, model, history):
+    """Append a history record and print the standard progress line."""
+    with torch.no_grad():
+        pi_mean = pi.mean(0).detach()
+        cap_viol = (pi_mean - b_t).clamp(min=0)
+
+    grad_norm = float(
+        sum(
+            p.grad.pow(2).sum()
+            for p in model.parameters()
+            if p.grad is not None
+        ).sqrt()
+    )
+
+    history.append({
+        "step": step,
+        "V": float(V.item()),
+        "mu": mu.detach().numpy().copy(),
+        "pi_mean": pi_mean.numpy().copy(),
+        "cap_viol_sup": float(cap_viol.max().item()),
+        "grad_norm": grad_norm,
+    })
+
+    print(
+        f"[train-{label}] step={step:4d}  "
+        f"V={V.item(): .4f}  "
+        f"mu={mu.detach().numpy().round(3)}  "
+        f"pi_mean={pi_mean.numpy().round(3)}  "
+        f"cap_viol_sup={cap_viol.max().item():.3e}  "
+        f"|grad|={grad_norm:.2e}"
+    )
 
 
 def train_GF(
@@ -80,35 +120,7 @@ def train_GF(
         opt.step()
 
         if step % log_every == 0 or step == steps - 1:
-            with torch.no_grad():
-                pi_mean = pi.mean(0).detach()
-                cap_viol = (pi_mean - b_t).clamp(min=0)
-
-            grad_norm = float(
-                sum(
-                    p.grad.pow(2).sum()
-                    for p in model.parameters()
-                    if p.grad is not None
-                ).sqrt()
-            )
-
-            history.append({
-                "step": step,
-                "V": float(V.item()),
-                "mu": mu_star.detach().numpy().copy(),
-                "pi_mean": pi_mean.numpy().copy(),
-                "cap_viol_sup": float(cap_viol.max().item()),
-                "grad_norm": grad_norm,
-            })
-
-            print(
-                f"[train-{kind}] step={step:4d}  "
-                f"V={V.item(): .4f}  "
-                f"mu={mu_star.detach().numpy().round(3)}  "
-                f"pi_mean={pi_mean.numpy().round(3)}  "
-                f"cap_viol_sup={cap_viol.max().item():.3e}  "
-                f"|grad|={grad_norm:.2e}"
-            )
+            log_training_step(kind, step, V, mu_star, pi, b_t, model, history)
 
     wall = time.time() - t0
     print(f"[train-{kind}] done in {wall:.1f}s")

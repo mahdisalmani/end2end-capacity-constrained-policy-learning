@@ -31,44 +31,86 @@ from urllib.request import urlretrieve
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
+from experiments.common import fit_logistic_propensity
 
+
+# Sources tried in order. The original scikit-uplift S3 bucket started
+# returning 403 (checked 2026-07-19); the Hugging Face mirror hosts the
+# official criteo-research-uplift-v2.1 file (~300MB gz, ~14M rows).
 CRITEO_URLS = {
-    "full":  "https://criteo-bucket.s3.eu-central-1.amazonaws.com/criteo.csv.gz",     # ~1.4GB, ~14M rows
-    "10pct": "https://criteo-bucket.s3.eu-central-1.amazonaws.com/criteo10.csv.gz",   # ~32MB,  ~1.4M rows
+    "full": [
+        "https://criteo-bucket.s3.eu-central-1.amazonaws.com/criteo.csv.gz",
+        "https://huggingface.co/datasets/criteo/criteo-uplift/resolve/main/criteo-research-uplift-v2.1.csv.gz",
+    ],
+    "10pct": [
+        "https://criteo-bucket.s3.eu-central-1.amazonaws.com/criteo10.csv.gz",
+    ],
 }
 RAW_CSV_NAMES = {
     "full":  "criteo.csv.gz",
     "10pct": "criteo10.csv.gz",
 }
 DEFAULT_CACHE = "data/criteo"
+# Seed for deriving the 10pct sample locally when its original source is gone.
+TENPCT_DERIVE_SEED = 0
 
 FEATURE_COLS = [f"f{k}" for k in range(12)]
 TARGET_COL = "visit"
 TREATMENT_COL = "treatment"
 
 
+def _try_urls(urls, path):
+    for url in urls:
+        try:
+            print(f"[criteo] downloading {url} -> {path}")
+            urlretrieve(url, path)
+            return True
+        except Exception as e:  # noqa: BLE001
+            print(f"[criteo] source failed ({type(e).__name__}: {e}); trying next")
+            if os.path.exists(path):
+                os.remove(path)
+    return False
+
+
+def _derive_10pct_from_full(cache_dir, path_10pct):
+    """The original criteo10.csv.gz is no longer hosted anywhere; derive a
+    deterministic 10% row sample (seed TENPCT_DERIVE_SEED) from the full
+    file. NOTE: this is a different sample than scikit-uplift's historical
+    one, so numbers differ from pre-2026 runs at the row level."""
+    full_path = _download_if_needed(cache_dir, variant="full")
+    print(f"[criteo] deriving 10pct sample from {full_path} "
+          f"(seed={TENPCT_DERIVE_SEED}) — one-time, a few minutes")
+    df = pd.read_csv(full_path, compression="gzip")
+    rng = np.random.default_rng(TENPCT_DERIVE_SEED)
+    idx = rng.choice(len(df), size=len(df) // 10, replace=False)
+    df.iloc[np.sort(idx)].to_csv(path_10pct, index=False, compression="gzip")
+    print(f"[criteo] wrote {path_10pct} ({len(idx)} rows)")
+
+
 def _download_if_needed(cache_dir=DEFAULT_CACHE, variant="full"):
-    """Download criteo.csv.gz (full, ~1.4GB) or criteo10.csv.gz (10pct, ~32MB)."""
+    """Ensure the raw csv.gz for `variant` exists locally; return its path."""
     if variant not in CRITEO_URLS:
         raise ValueError(f"Unknown variant {variant!r}; expected 'full' or '10pct'.")
     os.makedirs(cache_dir, exist_ok=True)
-    url = CRITEO_URLS[variant]
     path = os.path.join(cache_dir, RAW_CSV_NAMES[variant])
-    if not os.path.exists(path):
-        print(f"[criteo] downloading {url} -> {path}")
-        urlretrieve(url, path)
+    if os.path.exists(path):
+        return path
+    if not _try_urls(CRITEO_URLS[variant], path):
+        if variant == "10pct":
+            _derive_10pct_from_full(cache_dir, path)
+        else:
+            raise RuntimeError(
+                "All Criteo sources failed. Download "
+                "criteo-research-uplift-v2.1.csv.gz manually and place it at "
+                f"{path}."
+            )
     return path
 
 
-def _fit_propensity(X, T, clip=(0.05, 0.95)):
-    """e(x) = P(T=1 | X=x) via logistic regression on full data, clipped."""
-    lr = LogisticRegression(C=1.0, max_iter=2000)
-    lr.fit(X, T)
-    e1 = lr.predict_proba(X)[:, 1]
-    return np.clip(e1, clip[0], clip[1])
+# Pooled logistic propensity fit (canonical impl: experiments.common).
+_fit_propensity = fit_logistic_propensity
 
 
 def load_criteo(

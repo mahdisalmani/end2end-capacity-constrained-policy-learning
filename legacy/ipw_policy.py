@@ -1,7 +1,9 @@
 """
+[LEGACY — original T=3 prototype this repo grew out of; superseded by src/ + main.py. Kept for the README's historical walkthrough.]
+
 Capacity-constrained IPW policy learning with two inner layers, side-by-side.
 
-Pipeline (see plan /home/mahdi/.claude/plans/i-have-a-policy-fizzy-stallman.md):
+Pipeline:
 
     outer:  max_theta   V_IPW(theta) = (1/N) sum_i  pi_{theta, T_i}(X_i) * Y_i / e_{T_i}(X_i)
 

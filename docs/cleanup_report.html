@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>Cleanup &amp; Verification Report — capacity-constrained policy learning</title>
+<style>
+  :root {
+    --bg: #F7F8F9;
+    --bg-raise: #FFFFFF;
+    --ink: #1D242B;
+    --ink-soft: #4A555F;
+    --ink-faint: #75808A;
+    --accent: #0B5394;
+    --accent-ink: #0B5394;
+    --line: #DDE2E7;
+    --line-soft: #E8ECEF;
+    --good: #2E7D48;
+    --good-bg: #E7F2EA;
+    --warn: #9A6A1F;
+    --warn-bg: #F6EEDD;
+    --bad: #A03A31;
+    --bad-bg: #F7E8E6;
+    --code-bg: #EFF2F4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151A20;
+      --bg-raise: #1C232B;
+      --ink: #E4E9EE;
+      --ink-soft: #A8B2BC;
+      --ink-faint: #7A8590;
+      --accent: #7FB3E3;
+      --accent-ink: #93C2EC;
+      --line: #2D3640;
+      --line-soft: #242D36;
+      --good: #7CC495;
+      --good-bg: #1D2E24;
+      --warn: #D9B36A;
+      --warn-bg: #322A1A;
+      --bad: #E09287;
+      --bad-bg: #33211E;
+      --code-bg: #232B33;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151A20; --bg-raise: #1C232B; --ink: #E4E9EE; --ink-soft: #A8B2BC;
+    --ink-faint: #7A8590; --accent: #7FB3E3; --accent-ink: #93C2EC;
+    --line: #2D3640; --line-soft: #242D36;
+    --good: #7CC495; --good-bg: #1D2E24; --warn: #D9B36A; --warn-bg: #322A1A;
+    --bad: #E09287; --bad-bg: #33211E; --code-bg: #232B33;
+  }
+  :root[data-theme="light"] {
+    --bg: #F7F8F9; --bg-raise: #FFFFFF; --ink: #1D242B; --ink-soft: #4A555F;
+    --ink-faint: #75808A; --accent: #0B5394; --accent-ink: #0B5394;
+    --line: #DDE2E7; --line-soft: #E8ECEF;
+    --good: #2E7D48; --good-bg: #E7F2EA; --warn: #9A6A1F; --warn-bg: #F6EEDD;
+    --bad: #A03A31; --bad-bg: #F7E8E6; --code-bg: #EFF2F4;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+    font-size: 17px;
+    line-height: 1.62;
+  }
+  .wrap { max-width: 61rem; margin: 0 auto; padding: 3rem 1.4rem 5rem; }
+  .prose { max-width: 72ch; }
+
+  .eyebrow {
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--accent-ink);
+  }
+  header .eyebrow { color: var(--ink-faint); }
+  h1 {
+    font-size: 2.05rem; line-height: 1.2; margin: 0.45rem 0 0.6rem;
+    letter-spacing: -0.012em; text-wrap: balance;
+  }
+  .subtitle { color: var(--ink-soft); max-width: 72ch; margin: 0; }
+  .meta {
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
+    font-size: 0.8rem; color: var(--ink-faint); margin-top: 0.9rem;
+  }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+    gap: 0.7rem; margin: 1.8rem 0 0;
+  }
+  .stat {
+    background: var(--bg-raise); border: 1px solid var(--line);
+    border-radius: 6px; padding: 0.75rem 0.9rem;
+  }
+  .stat .n {
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 1.32rem; font-weight: 600; color: var(--accent-ink);
+    display: block; line-height: 1.25;
+  }
+  .stat .l {
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 0.74rem; color: var(--ink-soft); letter-spacing: 0.03em;
+  }
+
+  section { margin-top: 3.1rem; }
+  h2 {
+    font-size: 1.42rem; margin: 0.4rem 0 0.9rem; letter-spacing: -0.008em;
+    text-wrap: balance;
+  }
+  h3 { font-size: 1.08rem; margin: 1.7rem 0 0.5rem; }
+  p { margin: 0.75rem 0; max-width: 72ch; }
+  li { margin: 0.34rem 0; }
+  ul, ol { padding-left: 1.35rem; max-width: 70ch; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
+
+  code, .m {
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
+    font-size: 0.855em;
+    background: var(--code-bg);
+    border-radius: 4px; padding: 0.1em 0.35em;
+  }
+  .m { background: none; padding: 0; font-size: 0.9em; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line-soft);
+    border-radius: 6px; padding: 0.85rem 1rem; overflow-x: auto;
+    font-size: 0.83rem; line-height: 1.55; max-width: 100%;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .tablewrap { overflow-x: auto; margin: 1rem 0; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-raise); }
+  table {
+    border-collapse: collapse; width: 100%; font-size: 0.86rem;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  th {
+    text-align: left; font-size: 0.71rem; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600; padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  td { padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; }
+  td code { white-space: nowrap; }
+
+  .chip {
+    display: inline-block; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 0.12rem 0.5rem; border-radius: 99px; white-space: nowrap;
+  }
+  .chip.fixed { color: var(--good); background: var(--good-bg); }
+  .chip.caveat { color: var(--warn); background: var(--warn-bg); }
+  .chip.bug { color: var(--bad); background: var(--bad-bg); }
+  .chip.insight { color: var(--accent-ink); background: var(--code-bg); }
+
+  .callout {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    background: var(--bg-raise); border-radius: 6px;
+    padding: 0.85rem 1.1rem; margin: 1.15rem 0; max-width: 72ch;
+  }
+  .callout p { margin: 0.35rem 0; }
+  .pass { color: var(--good); font-weight: 600; }
+
+  .filetree { font-size: 0.8rem; }
+  a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Work report · code review, refactor &amp; numerical verification</div>
+  <h1>Cleanup of the capacity-constrained policy-learning repo</h1>
+  <p class="subtitle">
+    What was read, what was verified against the math in the papers, what was
+    broken, what changed, and the evidence that behavior is preserved —
+    for <code>end2end-capacity-constrained-policy-learning</code>.
+  </p>
+  <div class="meta">2026-07-19 · branch main · all changes staged, nothing committed</div>
+
+  <div class="stats">
+    <div class="stat"><span class="n">16 / 16</span><span class="l">new numerical tests passing</span></div>
+    <div class="stat"><span class="n">0.0</span><span class="l">max |diff| old vs new pipeline outputs</span></div>
+    <div class="stat"><span class="n">−1,855</span><span class="l">lines in live experiments/ (5,318 → 3,463)</span></div>
+    <div class="stat"><span class="n">41</span><span class="l">modules import-verified after refactor</span></div>
+    <div class="stat"><span class="n">10</span><span class="l">bugs fixed · 5 more flagged</span></div>
+  </div>
+</header>
+
+<section>
+  <div class="eyebrow">Context</div>
+  <h2>What this repository is</h2>
+  <div class="prose">
+  <p>
+    The repo implements the ISE&nbsp;619 project
+    <em>“End-to-End Policy Optimization for Capacity-Constrained Resource
+    Allocation”</em> (Final Report in <code>papers/ISE_619___PROJECT.zip</code>;
+    the math of the bilevel gradient is <code>papers/main.md</code>, identical to
+    <code>after second meeting.tex</code>). It learns a treatment policy from
+    observational logs <span class="m">(X<sub>i</sub>, T<sub>i</sub>, Y<sub>i</sub>, ê<sub>T<sub>i</sub></sub>(X<sub>i</sub>))</span>
+    under per-arm capacity budgets <span class="m">b<sub>t</sub></span>, by maximizing the IPW value
+    <span class="m">V̂<sub>IPW</sub>(θ) = (1/N) Σ<sub>i</sub> π<sub>θ,T<sub>i</sub></sub>(X<sub>i</sub>)·Y<sub>i</sub>/ê<sub>T<sub>i</sub></sub>(X<sub>i</sub>)</span>
+    over the softmax dual-price policy
+    <span class="m">π<sub>θ,t</sub>(x) = softmax<sub>t</sub>((m<sub>t,θ</sub>(x) − μ<sub>θ,t</sub>)/τ)</span>,
+    where the shadow prices <span class="m">μ<sub>θ</sub> ≥ 0</span> are themselves the argmin of an inner
+    capacity-pricing problem — a bilevel program, differentiated with the
+    implicit function theorem.
+  </p>
+  <p>The five method families, all present and working:</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>Method</th><th>Inner objective</th><th>Gradient path</th><th>Code</th></tr>
+    <tr><td><strong>F</strong></td><td>softmax-weighted Lagrangian <span class="m">F(μ)</span> — non-convex in μ</td><td>scipy L-BFGS-B forward; IFT backward on the augmented KKT system</td><td><code>src/inner_F.py</code></td></tr>
+    <tr><td><strong>G</strong></td><td>convex log-sum-exp dual <span class="m">G(μ)</span></td><td>CVXPYLayer (diffcp); layer size-locked to training N</td><td><code>src/inner_G.py</code></td></tr>
+    <tr><td><strong>Gs</strong></td><td>same G</td><td>scipy L-BFGS-B + IFT — no cvxpy in the loop, any N</td><td><code>src/inner_G.py</code></td></tr>
+    <tr><td><strong>Alt</strong></td><td>same as F</td><td>none — μ refreshed every <code>inner_freq</code> steps and held constant (the dual-refresh idea of the reference paper arXiv:2511.04909, “Dual-Guided Loss”)</td><td><code>src/train_alt.py</code></td></tr>
+    <tr><td><strong>S2-*</strong></td><td colspan="2">two-stage baseline (Tang et&nbsp;al. 2024): fit per-arm outcome models (OLS/lasso/tree/kNN/DR/MLP), solve the sample dual LP for μ̂, deploy <span class="m">argmax<sub>t</sub>(m̂<sub>t</sub>(x) − μ̂<sub>t</sub>)</span></td><td><code>src/s2_dual.py</code></td></tr>
+  </table></div>
+  <p class="prose">
+    Experiments: a snapshot pipeline (<code>generate_data.py</code> → <code>main.py</code>),
+    a queueing-deployment simulator, and four (N&nbsp;×&nbsp;seed) sweep suites
+    (nested synthetic, non-nested synthetic, LaLonde NSW+PSID-1, Criteo Uplift)
+    that produced the figures in the Final Report.
+  </p>
+</section>
+
+<section>
+  <div class="eyebrow">Verification</div>
+  <h2>The math was checked numerically before anything was touched</h2>
+  <p class="prose">
+    Every gradient path and identity claimed by the papers was tested against
+    an independent reference on small problems
+    (N=25, T=4, capacities chosen so one arm’s bound is active):
+  </p>
+  <div class="tablewrap"><table>
+    <tr><th>Check</th><th>Reference</th><th class="num">Max rel. error</th><th>Verdict</th></tr>
+    <tr><td>F–G entropy identity <span class="m">G−F = (τ/N)·Σ<sub>i</sub>H(σ<sub>i</sub>)</span> (Final Report Prop. 1)</td><td>direct evaluation</td><td class="num">4.9e−16</td><td><span class="chip fixed">exact</span></td></tr>
+    <tr><td>IFT backward of <code>mu_of_M_F</code> (τ=0.5 and 0.1)</td><td>central finite differences of μ*(M)</td><td class="num">5.6e−06 / 1.6e−04</td><td><span class="chip fixed">correct</span></td></tr>
+    <tr><td>IFT backward of <code>mu_of_M_G_scipy</code></td><td>central finite differences</td><td class="num">7.7e−06 / 4.0e−06</td><td><span class="chip fixed">correct</span></td></tr>
+    <tr><td>CVXPYLayer G: forward μ* / backward VJP</td><td>scipy solve / scipy IFT</td><td class="num">1.2e−08 / 3.7e−04</td><td><span class="chip fixed">agree</span></td></tr>
+    <tr><td>Active-set handling: <span class="m">dμ*<sub>t</sub>/dM = 0</span> when μ<sub>t</sub>=0</td><td>augmented-KKT solve</td><td class="num">&lt; 1e−08</td><td><span class="chip fixed">correct</span></td></tr>
+    <tr><td>Sample dual LP (S2 prices) = τ→0 limit of G</td><td>G at τ=1e−3</td><td class="num">&lt; 5e−02</td><td><span class="chip fixed">consistent</span></td></tr>
+  </table></div>
+  <p class="prose">
+    So the two hand-written <code>torch.autograd.Function</code> backward passes
+    (the mathematically riskiest code in the repo) are <strong>correct</strong>, including
+    with active non-negativity constraints — no gradient bug exists.
+    These checks are now permanent: <code>tests/test_inner_layers.py</code>.
+  </p>
+
+  <h3>One real mathematical finding: F and G differ on feasibility</h3>
+  <div class="prose">
+  <p>
+    Verifying complementary slackness exposed a genuine, previously
+    undocumented asymmetry between the two inner objectives. <strong>G’s</strong>
+    stationarity condition on inactive coordinates is literally
+    <span class="m">b<sub>t</sub> = (1/N)Σ<sub>i</sub> π<sub>t,i</sub></span> — so the allocation of the
+    G-policy is feasible-in-expectation <em>exactly</em>, with binding arms
+    at capacity to machine precision. <strong>F</strong> has no such property at finite τ:
+    its stationary point trades the capacity term against the μ-dependence of
+    the softmax weights, and can <em>exceed</em> caps. Measured at the inner
+    optimum of the same score matrix (τ=0.5):
+  </p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>Arm</th><th class="num">cap b</th><th class="num">alloc under μ*<sub>G</sub></th><th class="num">alloc under μ*<sub>F</sub></th><th>F vs cap</th></tr>
+    <tr><td>1</td><td class="num">0.250</td><td class="num">0.2500</td><td class="num">0.2496</td><td>under by 0.0004</td></tr>
+    <tr><td>2</td><td class="num">0.200</td><td class="num">0.2000</td><td class="num">0.2152</td><td><span class="chip bug">over by 0.0152</span></td></tr>
+    <tr><td>3</td><td class="num">0.150</td><td class="num">0.1500</td><td class="num">0.1687</td><td><span class="chip bug">over by 0.0187</span></td></tr>
+  </table></div>
+  <p class="prose">
+    This is a property of the objective, not a code bug — and it explains why
+    the experiment harnesses never deploy the raw softmax policy: they either
+    re-price with a sub-capacity buffer (argmax on
+    <span class="m">M − μ<sub>LP</sub>(0.92·b)</span>) or push overflow into the FIFO queue
+    repair layer. It is now stated in the docstrings of
+    <code>src/inner_F.py</code> / <code>src/inner_G.py</code>, the README, and asserted
+    for G in <code>tests/test_inner_layers.py::test_G_complementary_slackness</code>.
+  </p>
+</section>
+
+<section>
+  <div class="eyebrow">Debugging</div>
+  <h2>Bugs found and fixed</h2>
+  <div class="tablewrap"><table>
+    <tr><th></th><th>Where</th><th>Problem → fix</th></tr>
+    <tr><td><span class="chip bug">repro</span></td><td><code>n_sweep_lalonde.py</code></td><td>IPW seed was <code>hash((method,&nbsp;"ipw"))</code> — Python salts string hashes per process, so the random policy’s reported IPW changed between runs. Replaced with a <code>zlib.crc32</code>-based stable seed.</td></tr>
+    <tr><td><span class="chip bug">silent</span></td><td><code>run_cell_synth.py</code>, <code>run_cell_nonnested.py</code></td><td>Eval caches were reused on <code>os.path.exists</code> alone; changing any DGP knob silently kept the stale 10k-row eval split. Both caches now store and validate a key over every DGP parameter (criteo/lalonde already did this).</td></tr>
+    <tr><td><span class="chip bug">wrong docs</span></td><td><code>run_cell_nonnested.py</code></td><td>Docstring described a different experiment entirely (D=20, σ<sub>y</sub>=0.3, prop=2.5 vs the actual D=30, σ<sub>y</sub>=0.05, prop=0.7); also a dead <code>steps=5000</code> default the CLI always overrode with 1500. Docstring rewritten from the NN_* constants; default aligned to 1500.</td></tr>
+    <tr><td><span class="chip bug">dead logic</span></td><td><code>n_sweep_lalonde.py</code></td><td><code>for m in S2_METHODS[:4]</code> then <code>if m not in {"linear","lasso","knn"}: continue</code> — the slice was pointless and the comment (“skip dr”) wrong: tree was silently dropped too. Now an explicit <code>LALONDE_S2_METHODS = ("linear","lasso","knn")</code> with the real reason documented.</td></tr>
+    <tr><td><span class="chip bug">crash</span></td><td><code>add_alt_to_sweep.py</code></td><td>Default input was <code>results/criteo_pct_sweep.csv</code>, a file no script produces → guaranteed <code>FileNotFoundError</code>; plus an unguarded <code>os.makedirs("")</code>. Both fixed; script retired to <code>experiments/legacy/</code> since Alt is now a first-class cell method.</td></tr>
+    <tr><td><span class="chip bug">crash</span></td><td><code>plot_sweep.py</code> (legacy)</td><td>Only plotter without <code>matplotlib.use("Agg")</code> — fails on a display-less cluster node. Added.</td></tr>
+    <tr><td><span class="chip fixed">hygiene</span></td><td>various</td><td>Stale <code>--N</code> help text in <code>sweep.py</code> (said 100..1000, actual default 10..50); deprecated <code>datetime.utcnow()</code>; misleading comments in <code>data_v2.py</code> (claimed a 5-D peak &amp; σ<sub>g</sub>=0.07; code uses 3-D, σ<sub>g</sub>=0.20 — file deleted, see refactor); unused imports in all four sweep drivers; cvxpy <code>reshape</code> FutureWarning (now explicit <code>order="F"</code>); a leftover reference to a private plan file of a previous author in the prototype’s docstring.</td></tr>
+  </table></div>
+
+  <h3>Flagged, deliberately not changed</h3>
+  <div class="tablewrap"><table>
+    <tr><th></th><th>Where</th><th>Issue</th></tr>
+    <tr><td><span class="chip caveat">leakage</span></td><td><code>legacy/run_cell.py</code> “-mu” variants</td><td>G-mu / F-mu / S2-*-mu re-solve μ on <em>eval</em> scores — an eval-information peek. The project itself reverted this convention (commit <code>3efaf40</code> “Revert F’s eval-mu peek for a fair comparison”); the code path is kept, loudly documented, in legacy.</td></tr>
+    <tr><td><span class="chip caveat">leakage</span></td><td><code>data_criteo.py</code>, <code>data_lalonde.py</code></td><td>The logistic propensity is fit on the pooled data <em>before</em> the train/eval split. Mild in-sample simplification, kept for continuity with reported results; now documented in <code>common.fit_logistic_propensity</code>.</td></tr>
+    <tr><td><span class="chip caveat">design</span></td><td><code>legacy/n_sweep_experiment.py</code></td><td>The whole N-sweep used one data realization (<code>seed=config.TRAIN_SEED</code> for every N); <code>--train-seed</code> only seeded the model. Superseded by the multi-seed cell sweeps; caveat added to its header.</td></tr>
+    <tr><td><span class="chip caveat">metric</span></td><td><code>common.aggregate_one</code></td><td><code>mean_oracle_outcome_served</code> averages over served people only — survivorship bias if unserved fractions differ. Documented in the docstring; read it together with <code>frac_unserved</code>.</td></tr>
+    <tr><td><span class="chip caveat">comparability</span></td><td><code>real_queue_experiment.py</code></td><td>Deploys G/F by <em>sampling</em> the softmax with no cap buffer, while every sweep uses argmax + 0.92 buffer — wait times across the two conventions are not comparable. Both kept (they answer different questions); the distinction is now stated in both modules and the README.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <div class="eyebrow">Refactor</div>
+  <h2>Modularization: one implementation per idea</h2>
+  <p class="prose">
+    The experiment layer had grown by copy-paste: four <code>run_cell_*</code> files
+    ~85% identical, five sweep drivers ~70% identical, three copies of the
+    plotting function, two of the queue-IPW helpers, two data-generator files
+    with byte-identical bodies, and the two IFT backward passes duplicated
+    line-for-line in <code>inner_F</code>/<code>inner_G</code>. Each shared idea now
+    lives in exactly one module:
+  </p>
+  <div class="tablewrap"><table>
+    <tr><th>New module</th><th>Single home of</th></tr>
+    <tr><td><code>src/inner_common.py</code></td><td>L-BFGS-B inner solve + the augmented-KKT IFT backward (<code>ImplicitMu</code>); <code>inner_F</code>/<code>inner_G</code> now supply only their objectives</td></tr>
+    <tr><td><code>experiments/common.py</code></td><td>assigners (random / treat-all / oracle / S2 / model+LP-calibrated), Poisson streams, discrete-event queue simulator, row aggregation, IPW helpers, row subsampling, pooled propensity fit</td></tr>
+    <tr><td><code>experiments/cell_core.py</code></td><td>the full (N, seed) cell: baselines → F → Alt → Gs → S2 loop → CSV, with resume + failure isolation</td></tr>
+    <tr><td><code>experiments/sweep_core.py</code></td><td>the multiprocessing grid driver (spawn pool, <code>maxtasksperchild=1</code>, pending-cell selection, gather)</td></tr>
+  </table></div>
+  <p class="prose">
+    The dataset scripts became thin bindings (data loading + cache keys +
+    CLI defaults only), and every historical import path still works —
+    <code>n_sweep_criteo</code> and <code>real_queue_experiment</code> re-export the moved
+    names (<code>_f_arms_and_assigner</code>, <code>_subsample</code>, <code>simulate</code>, …), so the
+    add-on scripts (<code>add_s2_mlp_*</code>, <code>reeval_nonnested_oracle</code>, plotters)
+    run unmodified. Superseded first-generation code moved to
+    <code>experiments/legacy/</code> (old metrics pipeline: <code>run_cell / sweep /
+    aggregate / plot_sweep</code>, plus <code>n_sweep_experiment</code>,
+    <code>add_alt_to_sweep</code>) and <code>legacy/ipw_policy.py</code> (the original T=3
+    prototype), each with a supersession header; <code>data_v2.py</code> was deleted
+    outright (verified byte-identical to <code>data_nonnested.py</code> apart from
+    stale comments). In <code>src/</code>, the duplicated
+    <code>oracle_value_soft/onehot</code> collapsed into one <code>oracle_value</code>
+    (aliases kept), the three evaluators now share one
+    <code>score_policy_pair</code> row builder, and the training loops share one
+    logging helper.
+  </p>
+  <div class="tablewrap"><table>
+    <tr><th>Family</th><th class="num">Before</th><th class="num">After</th><th>Note</th></tr>
+    <tr><td>run_cell_synth / criteo / lalonde / nonnested</td><td class="num">1,050</td><td class="num">481 + 171 core</td><td>wrappers contain zero method logic</td></tr>
+    <tr><td>sweep_synth / criteo / lalonde / nonnested</td><td class="num">609</td><td class="num">271 + 145 core</td><td>one pool implementation</td></tr>
+    <tr><td>experiments/ (live, total)</td><td class="num">5,318</td><td class="num">3,463</td><td>−35%; 1,175 more retired to legacy/</td></tr>
+    <tr><td>src/</td><td class="num">1,506</td><td class="num">1,461</td><td>net ≈ flat while adding 159-line <code>inner_common</code> + docs — ~200 duplicated lines removed</td></tr>
+  </table></div>
+  <p class="prose">
+    Also added: <code>requirements.txt</code>, a rewritten <code>README.md</code> that
+    documents the actual repo (the old one described only the retired T=3
+    prototype), and <code>tests/</code>.
+  </p>
+</section>
+
+<section>
+  <div class="eyebrow">Evidence</div>
+  <h2>Proof the refactor preserves behavior</h2>
+  <div class="prose">
+  <p>
+    Three independent equivalence checks, all run with fixed seeds against the
+    pre-refactor code (via a git worktree of <code>HEAD</code>):
+  </p>
+  <ol>
+    <li><strong>Golden driver over <code>src/</code></strong> — every method variant
+      (random, oracle-greedy, G-CVXPYLayer, Gs, Gs-argmax, F, Alt, greedy-no-cap,
+      six S2 estimators, μ-on-eval variants) trained and evaluated on N=300/T=6
+      synthetic data, 284 tracked scalars including per-step training histories:
+      <span class="pass">bit-for-bit identical (max rel. diff 0.000e+00)</span>.</li>
+    <li><strong>Full synthetic cell A/B</strong> — <code>run_cell_synth(N=300, seed=3)</code>
+      old vs new: identical method list, identical CSV schema,
+      <span class="pass">max |diff| = 0.0</span> over all 220 numeric values
+      (IPW train/val, waits, unserved, per-arm allocations).</li>
+    <li><strong>Non-nested cell A/B</strong> — <code>run_cell_nonnested(N=250, seed=5)</code>
+      including the extra S2-mlp arm: 11 methods,
+      <span class="pass">max |diff| = 0.0</span>.</li>
+  </ol>
+  <p>Plus live smoke runs of everything that could be run on this machine:</p>
+  <ul>
+    <li>all <strong>41 modules import</strong> cleanly (including legacy);</li>
+    <li><code>sweep_synth</code> end-to-end with 3 workers through the new
+      <code>sweep_core</code> spawn pool — 3/3 cells ok, correct 30×24 gathered CSV;</li>
+    <li><code>generate_data.py</code> → <code>real_queue_experiment</code> (CVXPYLayer G path,
+      queue sim, summary table) — runs, ranking sane (F/G lowest wait);</li>
+    <li>a live <strong>LaLonde</strong> cell including the NBER download — F/Alt/Gs and the
+      S2 baselines all reach IPW ≈ 21 ($1k units) with ~0 wait, vs 12.8 for
+      random and 2.1 for treat-all, matching the report’s story;</li>
+    <li><strong>Criteo</strong> was import-checked and shares 100% of its cell logic with the
+      verified paths, but was not executed (32&nbsp;MB+ download) — the one thing
+      not exercised end-to-end.</li>
+  </ul>
+  </div>
+  <div class="callout">
+    <p><strong>Run it yourself</strong> (≈1 minute, no data needed):</p>
+    <pre><code>python -m tests.test_inner_layers          # 7 tests: IFT vs FD, F–G identity, KKT, LP limit
+python -m tests.test_policy_and_pipeline   # 9 tests: estimators, training smoke, queue conservation</code></pre>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Knowledge</div>
+  <h2>What I learned about this project (worth keeping)</h2>
+  <div class="prose">
+  <ul>
+    <li><span class="chip insight">math</span> The two inner objectives are the same
+      dual up to policy entropy — <span class="m">F ≤ G ≤ F + τ·log|T|</span>, with
+      <span class="m">G−F = (τ/N)Σ<sub>i</sub>H(σ<sub>i</sub>)</span> verified to 5e−16 — and both collapse
+      to the Tang et&nbsp;al. LP dual as τ→0 (verified against the S2 LP at τ=1e−3).
+      But only G is exactly feasible-in-expectation at finite τ (see the
+      finding above); F buys self-consistency with the deployed softmax at the
+      price of soft capacity violation.</li>
+    <li><span class="chip insight">math</span> The IFT backward implemented here is the
+      augmented saddle-point system of the Final Report’s Appendix B:
+      <span class="m">[[H+ρI, −E<sub>A</sub><sup>T</sup>],[E<sub>A</sub>, 0]]</span>, which pins
+      <span class="m">dμ*<sub>t</sub>/dM = 0</span> on the active set. It matches finite differences
+      even when bounds are active — strict complementarity held everywhere tested.</li>
+    <li><span class="chip insight">lineage</span> <strong>Alt</strong> is exactly the
+      “fixed-frequency dual refresh” strategy of the reference paper
+      (Rodriguez-Diaz, Bansak &amp; Paulson, arXiv:2511.04909) transplanted from
+      decision-focused learning to IPW policy learning: it drops the
+      <span class="m">(∂V/∂μ)(dμ/dθ)</span> chain-rule term that F/G compute via the IFT.
+      The repo is therefore a three-way comparison: full implicit
+      differentiation (F, G/Gs) vs dual refresh (Alt) vs decision-blind
+      two-stage (S2).</li>
+    <li><span class="chip insight">empirics</span> Two deployment conventions coexist and
+      give different wait-time numbers: softmax <em>sampling</em> without buffer
+      (snapshot experiment) vs <em>argmax</em> after re-pricing at 0.92·b
+      (all sweeps). The sub-capacity buffer is what keeps queues short on a
+      finite stream even for an in-expectation-feasible policy.</li>
+    <li><span class="chip insight">empirics</span> The evaluation convention that matters:
+      μ is part of the trained policy and is never re-solved on eval data.
+      The project tried the eval-μ variant, saw it flatter the results, and
+      reverted it (git history <code>981c4a9</code> → <code>3efaf40</code>);
+      the retired variants are kept only in <code>experiments/legacy/</code>.</li>
+    <li><span class="chip insight">engineering</span> The warm-start caches in the inner
+      layers are module-global state; the sweeps stay correct only because
+      every cell runs in its own process (<code>maxtasksperchild=1</code>) and
+      <code>make_mu_layer</code> resets state per training run. Documented in
+      <code>sweep_core</code> — worth remembering before ever running cells in-process.</li>
+  </ul>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">Status</div>
+  <h2>State of the working tree &amp; suggested next steps</h2>
+  <div class="prose">
+  <p>
+    All changes are <strong>staged but not committed</strong> (39 files, +2,230/−2,164,
+    including the <code>git mv</code> renames into the two <code>legacy/</code> folders) so you
+    can review with <code>git diff --cached</code>. Nothing under <code>results/</code> was
+    touched. Say the word and I’ll commit (as Nima Kelidari, per your global
+    git-identity rules) — reasonable next steps after that:
+  </p>
+  <ul>
+    <li>one live <code>run_cell_criteo</code> cell to close the only untested data path;</li>
+    <li>re-run a small <code>sweep_lalonde</code> slice to regenerate
+      <code>lalonde_sweep_seeds.csv</code> under the reproducible IPW seed
+      (the old numbers for the <em>random</em> policy were process-salted);</li>
+    <li>optionally fold <code>train_policies</code> in <code>n_sweep_criteo</code> /
+      <code>n_sweep_lalonde</code> onto <code>cell_core</code> as well — left as-is because their
+      single-process flow (train once, simulate 100 seeds) is genuinely different.</li>
+  </ul>
+  </div>
+</section>
+
+</div>
+
+</body>
+</html>

@@ -1,4 +1,6 @@
 """
+[LEGACY — superseded by the queue-sim cell/sweep pipeline; kept for reproducing the old results/sweep.csv artifacts]
+
 Plot the sweep metrics vs N with 95% CI bands across seeds. Reads
 results/sweep.csv. CLI flags `--n-min`, `--n-max`, `--out-dir` allow
 filtering the N range and writing to a specific output directory.
@@ -16,6 +18,8 @@ import os
 
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 

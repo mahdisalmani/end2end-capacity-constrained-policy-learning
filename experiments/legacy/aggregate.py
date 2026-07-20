@@ -1,4 +1,6 @@
-"""Concatenate per-cell CSVs into one results/sweep.csv."""
+"""
+[LEGACY — superseded by the queue-sim cell/sweep pipeline; kept for reproducing the old results/sweep.csv artifacts]
+Concatenate per-cell CSVs into one results/sweep.csv."""
 
 import glob
 import os

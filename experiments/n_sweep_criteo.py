@@ -1,14 +1,20 @@
 """
-N-sweep experiment on the Criteo Uplift (10% sample) real dataset.
+N-sweep experiment on the Criteo Uplift real dataset (single-process).
 
-Same harness as `experiments/n_sweep_lalonde.py` but:
-  - Loads real data via `experiments.data_criteo.load_criteo`.
-  - Subsamples ~200k rows from the 1.4M total, then 70 / 30 train/eval.
-  - Per `--n-values N`, subsample N rows from train and retrain F +
-    each S2 method; deploy on the same eval split for every N.
-  - Reports IPW-estimated policy value (using the binary `visit`
-    outcome as Y).
-  - Same `treat_all` baseline (no oracle_greedy without Y_pot).
+Harness:
+  - Loads real data via `experiments.data_criteo.load_criteo`
+    (optionally subsampled), 70 / 30 train/eval split.
+  - Per `--n-values N` (or `--n-pcts`), subsample N rows from train and
+    retrain F + Gs + Alt + each S2 method; deploy on the same eval split
+    for every N.
+  - Reports IPW policy value on train and validation (binary `visit`
+    outcome as Y) plus queue-simulation wait times.
+  - `treat_all` baseline instead of oracle-greedy (no Y_pot on real data).
+
+The multi-seed, multiprocessing version of this sweep is
+`experiments.sweep_criteo` (which runs `run_cell_criteo` cells). Shared
+machinery lives in `experiments.common` and is re-exported here under its
+historical names for backward compatibility.
 
 Run:
     python -m experiments.n_sweep_criteo --n-values 200 1000 5000 20000 100000
@@ -28,58 +34,30 @@ import torch
 
 from src.train import train_GF
 from src.train_alt import train_alt
-from src.s2_dual import (
-    fit_outcome_models,
-    get_mhat_matrix,
-    solve_dual_lp,
-)
 
-from experiments.real_queue_experiment import (
-    make_random_assigner,
-    make_s2_assigner,
-    make_streams,
-    simulate,
-    aggregate_one,
+from experiments.common import (  # noqa: F401  (some names are re-exports)
+    PER_ROW_KEYS as _PER_ROW_KEYS,
     S2_METHODS,
+    aggregate_one,
+    arms_and_assigner_from_model,
+    ipw_policy_value,
+    make_random_assigner,
+    make_streams,
+    make_treat_all_assigner,
+    precompute_arms,
+    s2_arms_and_assigner,
+    simulate,
+    subsample_rows as _subsample,
 )
 from experiments.data_criteo import load_criteo
 
 
-# === Block A: assigners ======================================================
-
-def make_treat_all_assigner():
-    """Always pick the treatment arm (T=1)."""
-    def assign(rng, person_idx):
-        return 1
-    return assign
+# Historical name for the model->policy deployment helper; canonical
+# implementation is experiments.common.arms_and_assigner_from_model.
+_f_arms_and_assigner = arms_and_assigner_from_model
 
 
-def _f_arms_and_assigner(model, train_data, eval_data, B, cap_buffer):
-    """Return (arms_train, arms_eval, assigner) for F.
-
-    Re-solves the dual LP on F's M(X_train) with cap vector
-    `cap_buffer * B` (default 0.92 -> sub-cap), then deploys
-    `argmax(M - mu_calibrated)` on both train and eval.
-    """
-    B_arr = np.asarray(B, dtype=float)
-    B_shrunk = cap_buffer * B_arr
-
-    with torch.no_grad():
-        M_train = model(torch.tensor(train_data["X"])).numpy()
-    mu_calibrated, _, _, _ = solve_dual_lp(M_train, B_shrunk, verbose=False)
-    arms_train = (M_train - mu_calibrated[None, :]).argmax(axis=1)
-
-    with torch.no_grad():
-        M_eval = model(torch.tensor(eval_data["X"])).numpy()
-    arms_eval = (M_eval - mu_calibrated[None, :]).argmax(axis=1)
-
-    def assigner(rng, person_idx):
-        return int(arms_eval[person_idx])
-
-    return arms_train, arms_eval, assigner
-
-
-# === Block B: train all methods ==============================================
+# === Block A: train all methods ==============================================
 
 def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
                    f_tau=0.03, cap_buffer=0.92, alt_inner_freq=5):
@@ -112,12 +90,9 @@ def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
         D=D, T=T, tau=f_tau_use, b=B,
         steps=steps, lr=lr, log_every=max(1, steps), seed=seed,
     )
-    a_train_F, a_eval_F, assigner_F = _f_arms_and_assigner(
+    arms_train["F"], arms_eval["F"], policies["F"] = _f_arms_and_assigner(
         model_F, train_data, eval_data, B, cap_buffer,
     )
-    arms_train["F"] = a_train_F
-    arms_eval["F"] = a_eval_F
-    policies["F"] = assigner_F
 
     print(f"[train] Gs (scipy + IFT, convex dual)  tau={TAU}  cap_buffer={cap_buffer}")
     model_Gs, mu_Gs, _ = train_GF(
@@ -125,12 +100,9 @@ def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
         D=D, T=T, tau=TAU, b=B,
         steps=steps, lr=lr, log_every=max(1, steps), seed=seed,
     )
-    a_train_Gs, a_eval_Gs, assigner_Gs = _f_arms_and_assigner(
+    arms_train["Gs"], arms_eval["Gs"], policies["Gs"] = _f_arms_and_assigner(
         model_Gs, train_data, eval_data, B, cap_buffer,
     )
-    arms_train["Gs"] = a_train_Gs
-    arms_eval["Gs"] = a_eval_Gs
-    policies["Gs"] = assigner_Gs
 
     print(f"[train] Alt (BCD, inner_freq={alt_inner_freq})  tau={f_tau_use}  "
           f"cap_buffer={cap_buffer}")
@@ -139,67 +111,24 @@ def train_policies(train_data, eval_data, T, D, TAU, B, steps, lr, seed,
         outer_steps=steps, inner_freq=alt_inner_freq, lr=lr,
         log_every=max(1, steps), seed=seed,
     )
-    a_train_Alt, a_eval_Alt, assigner_Alt = _f_arms_and_assigner(
+    arms_train["Alt"], arms_eval["Alt"], policies["Alt"] = _f_arms_and_assigner(
         model_Alt, train_data, eval_data, B, cap_buffer,
     )
-    arms_train["Alt"] = a_train_Alt
-    arms_eval["Alt"] = a_eval_Alt
-    policies["Alt"] = assigner_Alt
 
     for method in S2_METHODS:    # linear, lasso, tree, knn, dr
         print(f"[train] S2-{method}")
-        outcome_models = fit_outcome_models(
-            X_train=train_data["X"],
-            T_train=train_data["T"],
-            Y_train=train_data["Y"],
-            T=T, method=method,
-            E_train=train_data["E"],
-        )
-        M_hat_train = get_mhat_matrix(outcome_models, train_data["X"], T)
-        mu_hat, _, _, _ = solve_dual_lp(M_hat_train, B, verbose=False)
-        arms_train[f"S2-{method}"] = (
-            M_hat_train - mu_hat[None, :]
-        ).argmax(axis=1)
-        M_hat_eval = get_mhat_matrix(outcome_models, eval_data["X"], T)
-        arms_eval[f"S2-{method}"] = (
-            M_hat_eval - mu_hat[None, :]
-        ).argmax(axis=1)
-        policies[f"S2-{method}"] = make_s2_assigner(
-            outcome_models, mu_hat, eval_data, T,
+        tag = f"S2-{method}"
+        arms_train[tag], arms_eval[tag], policies[tag] = s2_arms_and_assigner(
+            train_data, eval_data, T, B, method,
         )
 
     return policies, arms_train, arms_eval
 
 
-# === Block C: IPW policy value ===============================================
-
-def precompute_arms(assigner, n_eval, rng_seed=0):
-    """Apply assigner to every eval index. RNG is shared across all
-    calls so stochastic policies (random) get a single coherent draw."""
-    rng = np.random.default_rng(rng_seed)
-    return np.fromiter(
-        (assigner(rng, i) for i in range(n_eval)),
-        dtype=np.int64, count=n_eval,
-    )
-
-
-def ipw_policy_value(arms, data):
-    """V_IPW = (1 / N) * sum_i  Y_i * 1{arms[i] = T_i} / e_T_i.
-
-    Works for any (arms, data) where the lengths match. Use it for
-    both train-side and eval-side IPW values.
-    """
-    Y = data["Y"]
-    T = data["T"]
-    e_T = data["e_T"]
-    matched = (arms == T).astype(np.float64)
-    return float((Y * matched / e_T).mean())
-
-
-# === Block D: plot ===========================================================
+# === Block B: plot ===========================================================
 
 def plot_results(agg, methods, out_png, variant_label="full"):
-    """1x3 panel: mean wait time, IPW policy value, unserved %.
+    """1x3 panel: IPW (val), IPW (train), mean wait time.
     F gets a thicker dark-blue line, drawn on top."""
 
     def _style(m):
@@ -257,7 +186,7 @@ def plot_results(agg, methods, out_png, variant_label="full"):
     print(f"[plot] wrote {out_png}")
 
 
-# === Block E: main ===========================================================
+# === Block C: main ===========================================================
 
 def parse_args():
     p = argparse.ArgumentParser(description="Criteo Uplift N-sweep (real data).")
@@ -298,22 +227,6 @@ def parse_args():
     return p.parse_args()
 
 
-_PER_ROW_KEYS = {"X", "T", "Y", "e_T", "E", "Y_pot"}
-
-
-def _subsample(train_data, n, seed):
-    """Take a permuted subset of n rows from train_data. Beta / Alpha
-    are not per-row; pass them through unchanged."""
-    rng = np.random.default_rng(seed)
-    N_train = len(train_data["T"])
-    n = min(n, N_train)
-    idx = rng.permutation(N_train)[:n]
-    return {
-        k: (v[idx] if k in _PER_ROW_KEYS else v)
-        for k, v in train_data.items()
-    }
-
-
 def main():
     args = parse_args()
 
@@ -332,8 +245,6 @@ def main():
     D = int(cfg["D"])
     TAU = float(cfg["TAU"])
     B = cfg["B"]
-
-    n_eval = len(eval_data["T"])
 
     if args.n_pcts is not None:
         n_train_full = len(train_full["T"])

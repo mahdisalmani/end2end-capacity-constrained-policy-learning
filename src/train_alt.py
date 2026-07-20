@@ -5,12 +5,15 @@ Targets the same Lagrangian as F (`src/inner_F.py`), but instead of
 backpropagating through the inner argmin via the implicit function theorem,
 it alternates:
 
-  1. Hold mu fixed (treated as a constant), take `inner_freq` plain-SGD
+  1. Hold mu fixed (treated as a constant), take `inner_freq` gradient
      steps on theta against the outer IPW objective.
   2. Hold theta fixed, refit mu by solving the inner problem with scipy
      L-BFGS-B (same routine F uses, `_solve_F_inner`).
 
-mu is used as a value, never a function of theta — no IFT, no diffcp.
+mu is used as a value, never a function of theta — no IFT, no diffcp. This
+is the dual-refresh idea of Rodriguez-Diaz et al. (arXiv:2511.04909) applied
+to the IPW policy objective: the chain-rule term (dV/dmu)(dmu/dtheta) is
+dropped, so refreshes must be frequent enough for mu to track theta.
 
 Per the project's bilevel-eval convention: `mu_final` returned here is part
 of the trained policy. Callers must NOT re-solve mu on eval data.
@@ -23,7 +26,7 @@ import torch
 from .models import MLPScore
 from .policy import softmax_policy, ipw_value
 from .inner_F import _solve_F_inner
-from .train import prepare_torch_training_data
+from .train import prepare_torch_training_data, log_training_step
 
 
 def train_alt(
@@ -77,35 +80,7 @@ def train_alt(
         opt.step()
 
         if step % log_every == 0 or step == outer_steps - 1:
-            with torch.no_grad():
-                pi_mean = pi.mean(0).detach()
-                cap_viol = (pi_mean - b_t).clamp(min=0)
-
-            grad_norm = float(
-                sum(
-                    p.grad.pow(2).sum()
-                    for p in model.parameters()
-                    if p.grad is not None
-                ).sqrt()
-            )
-
-            history.append({
-                "step": step,
-                "V": float(V.item()),
-                "mu": mu.detach().numpy().copy(),
-                "pi_mean": pi_mean.numpy().copy(),
-                "cap_viol_sup": float(cap_viol.max().item()),
-                "grad_norm": grad_norm,
-            })
-
-            print(
-                f"[train-Alt] step={step:4d}  "
-                f"V={V.item(): .4f}  "
-                f"mu={mu.detach().numpy().round(3)}  "
-                f"pi_mean={pi_mean.numpy().round(3)}  "
-                f"cap_viol_sup={cap_viol.max().item():.3e}  "
-                f"|grad|={grad_norm:.2e}"
-            )
+            log_training_step("Alt", step, V, mu, pi, b_t, model, history)
 
     wall = time.time() - t0
     print(f"[train-Alt] done in {wall:.1f}s")
