@@ -1,8 +1,10 @@
 """
 [LEGACY — superseded by the queue-sim cell/sweep pipeline; kept for reproducing the old results/sweep.csv artifacts]
-NOTE: the *-mu variants computed here re-solve mu on EVAL scores (an
-eval-information peek); pass --skip-mu to drop them. See the final
-report's bilevel-eval convention: mu is part of the trained policy.
+NOTE: the *-mu variants re-solve mu on EVAL scores, which is an
+eval-information peek — mu is part of the trained policy under this
+project's bilevel-eval convention, and the project reverted the practice in
+commit 3efaf40. They are therefore OFF by default; pass --with-eval-mu to
+reproduce the old (leaky) numbers deliberately.
 
 Single-cell worker for the (N, seed) sweep.
 
@@ -127,7 +129,7 @@ def _flatten_result(r, N, seed, T, wall_s):
     return row
 
 
-def _run_cell_body(N, seed, steps, lr, skip_mu=False):
+def _run_cell_body(N, seed, steps, lr, skip_mu=True):
     """Inner body of run_one_cell — assumes setup already done."""
     T = config.T
     D = config.D
@@ -249,7 +251,7 @@ def _run_cell_body(N, seed, steps, lr, skip_mu=False):
     return results
 
 
-def run_one_cell(N, seed, steps=200, lr=5e-3, force=False, skip_mu=False):
+def run_one_cell(N, seed, steps=200, lr=5e-3, force=False, skip_mu=True):
     """Worker entry point. Returns list of row-dicts (also written to CSV)."""
     _ensure_dirs()
 
@@ -292,8 +294,10 @@ def _parse_args():
     p.add_argument("--steps", type=int, default=200)
     p.add_argument("--lr", type=float, default=5e-3)
     p.add_argument("--force", action="store_true")
-    p.add_argument("--skip-mu", action="store_true",
-                   help="Skip the eval-time -mu refit variants for cheaper cells.")
+    p.add_argument("--with-eval-mu", dest="skip_mu", action="store_false",
+                   help="Also emit the *-mu variants, which re-solve mu on the "
+                        "EVAL split. This is an eval-information peek and the "
+                        "project reverted it (commit 3efaf40); off by default.")
     return p.parse_args()
 
 

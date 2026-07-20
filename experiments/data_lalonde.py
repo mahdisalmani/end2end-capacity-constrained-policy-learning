@@ -17,6 +17,10 @@ oracle outcome metric) will produce NaN there, by design.
 
 Y values are scaled to thousands of dollars so the IPW gradient
 stays in a numerically friendly range during F's MLP training.
+
+The propensity model and the covariate standardization are fit on the
+TRAINING split only and then applied to eval, so no eval-split information
+enters the weights the eval split is scored with.
 """
 
 import os
@@ -24,9 +28,12 @@ from urllib.request import urlretrieve
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 
-from experiments.common import fit_logistic_propensity
+from experiments.common import (
+    fit_logistic_propensity,
+    split_indices,
+    standardize_train_fit,
+)
 
 
 DEHEJIA_URLS = {
@@ -64,7 +71,8 @@ def _load_raw(cache_dir=DEFAULT_CACHE):
     return df
 
 
-# Pooled logistic propensity fit (canonical impl: experiments.common).
+# Logistic propensity fit (canonical impl: experiments.common). Fit on the
+# training split only — see the note in `load_lalonde`.
 _fit_propensity = fit_logistic_propensity
 
 
@@ -86,26 +94,22 @@ def load_lalonde(
     _download_if_needed(cache_dir)
     df = _load_raw(cache_dir)
 
-    # Standardise covariates (zero mean, unit variance).
     X_raw = df[FEATURE_COLS].values.astype(np.float64)
-    scaler = StandardScaler()
-    X = scaler.fit_transform(X_raw)
-
     T = df["treat"].values.astype(np.int64)
     Y_raw = df["re78"].values.astype(np.float64)
     Y = Y_raw / y_scale
 
-    # Propensity fit on full data, clipped.
-    e1 = _fit_propensity(X, T)
+    # Split FIRST, then fit standardization and the propensity model on the
+    # training rows only: both are estimated objects, and fitting them on the
+    # pooled data leaks eval-split information into the IPW weights that the
+    # eval split is then scored with.
+    N_total = len(T)
+    train_idx, eval_idx, n_train = split_indices(N_total, train_frac, seed)
+
+    X = standardize_train_fit(X_raw, fit_idx=train_idx)
+    e1 = _fit_propensity(X, T, fit_idx=train_idx)      # clipped to [0.05, 0.95]
     E = np.stack([1.0 - e1, e1], axis=1)               # shape (N, 2)
     e_T = E[np.arange(len(T)), T]                      # observed-arm prob
-
-    N_total = len(T)
-
-    rng = np.random.default_rng(seed)
-    perm = rng.permutation(N_total)
-    n_train = int(round(train_frac * N_total))
-    train_idx, eval_idx = perm[:n_train], perm[n_train:]
 
     def _slice(I):
         return {

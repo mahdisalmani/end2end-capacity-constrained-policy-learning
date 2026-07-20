@@ -209,25 +209,45 @@ def simulate(people_t, person_idx, resource_t, assigner, T, T_max,
         "wait": waits,
         "served": served,
         "oracle_outcome": outcomes,
+        # Needed by aggregate_one to price unserved arrivals at the control arm.
+        "Y_pot": Y_pot,
     }
 
 
 def aggregate_one(records, method, sim_seed, B, N_sim, sim_wall):
     """Aggregate one simulation run into a flat result row.
 
-    Note: `mean_oracle_outcome_served` averages over served people only, so
-    a method that leaves many people unserved is scored on a selected
-    subpopulation — read it together with `frac_unserved`.
+    Two outcome columns, deliberately:
+
+      `mean_oracle_outcome_served` averages over SERVED arrivals only. It is
+      a conditional-on-service quantity and is subject to survivorship bias —
+      a policy that abandons hard cases looks better on it. Kept because it
+      answers "what did the people who got a resource receive?".
+
+      `mean_oracle_outcome_all` charges unserved arrivals their control-arm
+      (t=0) outcome, i.e. what they would have got with no intervention.
+      This is the population quantity and the one to compare methods on,
+      because it prices non-service instead of discarding it.
     """
     arms = records["arm"]
     waits = records["wait"]
     served = records["served"]
     outcomes = records["oracle_outcome"]
+    person_idx = records["person_idx"]
+    Y_pot = records.get("Y_pot")
     T = len(B)
 
     n_unserved = int((~served).sum())
     served_waits = waits[served]
     served_outcomes = outcomes[served]
+
+    # Population outcome: served arrivals get their realized arm, unserved
+    # arrivals fall back to the control arm (no intervention delivered).
+    if Y_pot is not None and Y_pot.size and not np.all(np.isnan(Y_pot)):
+        all_out = np.where(served, outcomes, Y_pot[person_idx, 0])
+        mean_all = float(np.nanmean(all_out)) if all_out.size else float("nan")
+    else:
+        mean_all = float("nan")   # real data: no counterfactuals
 
     row = {
         "method": method,
@@ -239,6 +259,7 @@ def aggregate_one(records, method, sim_seed, B, N_sim, sim_wall):
                              if served_waits.size > 0 else float("nan")),
         "mean_oracle_outcome_served": (float(served_outcomes.mean())
                                        if served_outcomes.size > 0 else float("nan")),
+        "mean_oracle_outcome_all": mean_all,
         "num_unserved": n_unserved,
         "frac_unserved": n_unserved / N_sim,
         "sim_wall_s": sim_wall,
@@ -320,16 +341,43 @@ def subsample_rows(train_data, n, seed):
 
 # === Real-data propensity fit ================================================
 
-def fit_logistic_propensity(X, T, clip=(0.05, 0.95)):
+def fit_logistic_propensity(X, T, clip=(0.05, 0.95), fit_idx=None):
     """e(x) = P(T=1 | X=x) via logistic regression, clipped for IPW stability.
 
-    Note: the real-data loaders fit this on the POOLED data before the
-    train/eval split (a mild in-sample-propensity simplification, kept for
-    continuity with the reported results).
+    `fit_idx` restricts ESTIMATION to a subset of rows (the training split)
+    while still predicting for all rows. Fitting on the pooled data and then
+    splitting leaks eval-split information into the IPW weights that the same
+    eval split is later scored with — the propensity model has seen the
+    outcomes' treatment assignments on rows it is asked to weight. Pass the
+    training indices to keep the eval-side estimator honest.
+
+    Standardization has the same issue; see `standardize_train_fit` below.
     """
     from sklearn.linear_model import LogisticRegression
 
     lr = LogisticRegression(C=1.0, max_iter=2000)
-    lr.fit(X, T)
+    if fit_idx is None:
+        lr.fit(X, T)
+    else:
+        lr.fit(X[fit_idx], T[fit_idx])
     e1 = lr.predict_proba(X)[:, 1]
     return np.clip(e1, clip[0], clip[1])
+
+
+def standardize_train_fit(X, fit_idx=None):
+    """Standardize X with mean/scale estimated on `fit_idx` rows only."""
+    from sklearn.preprocessing import StandardScaler
+
+    scaler = StandardScaler()
+    if fit_idx is None:
+        return scaler.fit_transform(X)
+    scaler.fit(X[fit_idx])
+    return scaler.transform(X)
+
+
+def split_indices(n, train_frac, seed):
+    """Shared permutation split so loaders can fit preprocessing on train only."""
+    rng = np.random.default_rng(seed)
+    perm = rng.permutation(n)
+    n_train = int(round(train_frac * n))
+    return perm[:n_train], perm[n_train:], n_train

@@ -16,6 +16,9 @@ The original experiment is a randomised incrementality test, so the
 "true" propensity is constant ≈ 0.85. We still fit a logistic-regression
 e(x) on the 12 features and clip to [0.05, 0.95] for IPW stability;
 this lets the same pipeline downstream pretend the data is observational.
+The propensity model and the feature standardization are both fit on the
+TRAINING split only and then applied to eval, so no eval-split information
+enters the weights the eval split is scored with.
 
 Y is `visit` (kept as 0/1 — IPW gradients are well-scaled at this
 range, no rescaling needed).
@@ -31,9 +34,11 @@ from urllib.request import urlretrieve
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
-
-from experiments.common import fit_logistic_propensity
+from experiments.common import (
+    fit_logistic_propensity,
+    split_indices,
+    standardize_train_fit,
+)
 
 
 # Sources tried in order. The original scikit-uplift S3 bucket started
@@ -151,21 +156,20 @@ def load_criteo(
         df = df.iloc[idx].reset_index(drop=True)
 
     X_raw = df[FEATURE_COLS].values.astype(np.float64)
-    scaler = StandardScaler()
-    X = scaler.fit_transform(X_raw)
-
     T = df[TREATMENT_COL].values.astype(np.int64)
     Y = df[target_col].values.astype(np.float64)
 
-    e1 = _fit_propensity(X, T)
+    # Split FIRST, then fit standardization and the propensity model on the
+    # training rows only: both are estimated objects, and fitting them on the
+    # pooled data leaks eval-split information into the IPW weights that the
+    # eval split is then scored with.
+    N_total = len(T)
+    train_idx, eval_idx, n_train = split_indices(N_total, train_frac, seed + 1)
+
+    X = standardize_train_fit(X_raw, fit_idx=train_idx)
+    e1 = _fit_propensity(X, T, fit_idx=train_idx)
     E = np.stack([1.0 - e1, e1], axis=1)
     e_T = E[np.arange(len(T)), T]
-
-    N_total = len(T)
-    rng = np.random.default_rng(seed + 1)
-    perm = rng.permutation(N_total)
-    n_train = int(round(train_frac * N_total))
-    train_idx, eval_idx = perm[:n_train], perm[n_train:]
 
     def _slice(I):
         return {

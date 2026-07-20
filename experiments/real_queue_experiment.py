@@ -1,5 +1,5 @@
 """
-Real-queue deployment experiment (snapshot-based, softmax-sampling G/F).
+Real-queue deployment experiment (snapshot-based).
 
 Phase 1: train every policy method (random, oracle-greedy-no-cap, G, F, and
 the five S2 variants) on the train snapshot produced by `generate_data.py`.
@@ -11,12 +11,11 @@ independent Poisson processes at rate `b_t * lambda_people`, so a method
 that assigns more than `b_t` mass to arm t will see arm-t's queue grow
 without bound. Idle resources are held in inventory until claimed.
 
-DEPLOYMENT NOTE: this script deploys G/F by *sampling* from the softmax
-policy (`make_gf_assigner` below) with no capacity buffer — the project's
-original stochastic deployment convention. The newer sweep/cell harnesses
-instead deploy argmax(M - mu) with a sub-capacity buffer
-(`experiments.common.arms_and_assigner_from_model`), so wait-time numbers
-from this script are NOT directly comparable to theirs.
+DEPLOYMENT: selected with --deployment. The default "argmax" matches every
+sweep/cell harness — re-price on the TRAIN scores at cap_buffer * B, then
+deploy argmax(M - mu) — so numbers here are directly comparable to theirs.
+Pass --deployment softmax for this script's historical behaviour, which
+samples the trained policy with no buffer and is NOT comparable.
 
 The queue simulator itself lives in `experiments.common`; this module
 re-exports it for backward compatibility.
@@ -49,6 +48,7 @@ from src.s2_dual import (
 from experiments.common import (  # noqa: F401  (re-exports)
     S2_METHODS,
     aggregate_one,
+    arms_and_assigner_from_model,
     make_oracle_greedy_assigner,
     make_random_assigner,
     make_s2_assigner,
@@ -57,13 +57,13 @@ from experiments.common import (  # noqa: F401  (re-exports)
 )
 
 
-def make_gf_assigner(model, mu_train, eval_data, tau):
+def make_gf_softmax_assigner(model, mu_train, eval_data, tau):
     """Sample from softmax((M(x) - mu)/tau). Cumulative probs precomputed.
 
-    Stochastic deployment (this script only): expected allocation equals the
-    softmax policy mass, so caps can be transiently exceeded — the queues
-    absorb the excess. The sweep harnesses use the deterministic
-    argmax + cap-buffer deployment instead.
+    Stochastic deployment: expected allocation equals the softmax policy
+    mass, so caps can be transiently exceeded and the queues absorb the
+    excess. Kept because it is the policy class as trained; select it with
+    --deployment softmax.
     """
     with torch.no_grad():
         M = model(torch.tensor(eval_data["X"])).numpy()
@@ -80,7 +80,31 @@ def make_gf_assigner(model, mu_train, eval_data, tau):
     return assign
 
 
-def train_all_policies(train_data, eval_data, cfg, steps, lr, seed):
+def make_gf_assigner(model, mu_train, eval_data, tau, deployment="argmax",
+                     train_data=None, B=None, cap_buffer=0.92):
+    """Deployment rule for a trained score model.
+
+    "argmax"  (default) — re-price on the TRAIN scores at cap_buffer * B and
+                deploy argmax(M - mu_calibrated). This is what every sweep and
+                cell harness uses, so numbers from this script are directly
+                comparable to theirs.
+    "softmax" — sample from the trained softmax policy (the historical
+                behaviour of this script; not comparable to the sweeps).
+    """
+    if deployment == "softmax":
+        return make_gf_softmax_assigner(model, mu_train, eval_data, tau)
+    if deployment != "argmax":
+        raise ValueError(f"Unknown deployment: {deployment}")
+    if train_data is None or B is None:
+        raise ValueError("argmax deployment needs train_data and B")
+    _, _, assigner = arms_and_assigner_from_model(
+        model, train_data, eval_data, B, cap_buffer,
+    )
+    return assigner
+
+
+def train_all_policies(train_data, eval_data, cfg, steps, lr, seed,
+                       deployment="argmax", cap_buffer=0.92):
     T = int(cfg["T"])
     D = int(cfg["D"])
     TAU = float(cfg["TAU"])
@@ -100,6 +124,8 @@ def train_all_policies(train_data, eval_data, cfg, steps, lr, seed):
     )
     policies["G"] = make_gf_assigner(
         model_G, mu_G.detach().cpu().numpy(), eval_data, TAU,
+        deployment=deployment, train_data=train_data, B=B,
+        cap_buffer=cap_buffer,
     )
 
     print("[train] F (implicit diff, non-convex literal)")
@@ -110,6 +136,8 @@ def train_all_policies(train_data, eval_data, cfg, steps, lr, seed):
     )
     policies["F"] = make_gf_assigner(
         model_F, mu_F.detach().cpu().numpy(), eval_data, TAU,
+        deployment=deployment, train_data=train_data, B=B,
+        cap_buffer=cap_buffer,
     )
 
     for method in S2_METHODS:
@@ -163,6 +191,12 @@ def parse_args():
     p.add_argument("--steps", type=int, default=200)
     p.add_argument("--lr", type=float, default=5e-3)
     p.add_argument("--train-seed", type=int, default=1)
+    p.add_argument("--deployment", type=str, default="argmax",
+                   choices=["argmax", "softmax"],
+                   help="argmax (default, matches every sweep harness) re-prices "
+                        "on train scores at cap-buffer*B; softmax samples the "
+                        "trained policy (historical behaviour, not comparable).")
+    p.add_argument("--cap-buffer", type=float, default=0.92)
     p.add_argument("--out-csv", type=str, default="results/real_queue.csv")
     return p.parse_args()
 
@@ -190,6 +224,7 @@ def main():
     policies = train_all_policies(
         train_data, eval_data, cfg,
         steps=args.steps, lr=args.lr, seed=args.train_seed,
+        deployment=args.deployment, cap_buffer=args.cap_buffer,
     )
 
     rows = []

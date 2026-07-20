@@ -106,7 +106,19 @@ if __name__ == "__main__":
     p.add_argument("--N", type=int, required=True)
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--steps", type=int, default=500)
+    # Loader options must be reachable from the CLI: the cache is keyed on
+    # them, so a batch runner that can't set them would silently rebuild a
+    # different split per job.
+    p.add_argument("--variant", type=str, default="10pct",
+                   choices=["full", "10pct"])
+    p.add_argument("--subsample", type=int, default=50_000)
+    p.add_argument("--split-seed", type=int, default=0, dest="split_seed")
+    p.add_argument("--f-tau", type=float, default=0.03, dest="f_tau")
+    p.add_argument("--cap-buffer", type=float, default=0.92, dest="cap_buffer")
     p.add_argument("--force", action="store_true")
     args = p.parse_args()
-    rows = run_one_cell(N=args.N, seed=args.seed, steps=args.steps, force=args.force)
+    rows = run_one_cell(N=args.N, seed=args.seed, steps=args.steps,
+                        variant=args.variant, subsample=args.subsample,
+                        split_seed=args.split_seed, f_tau=args.f_tau,
+                        cap_buffer=args.cap_buffer, force=args.force)
     cell_core.print_cell_rows(rows, CELL_DIR, args.N, args.seed)

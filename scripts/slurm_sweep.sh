@@ -3,19 +3,17 @@
 #
 # Cells are already independent and resumable — each writes its own
 # results/<dataset>_cells/cell_N{N}_seed{s}.csv and skips if it exists — so
-# they map cleanly onto an array job. This scales past the cores on one node,
-# which is what the local `sweep_*` multiprocessing drivers are limited to.
+# they map directly onto an array job and scale past the cores on one node.
 #
 # Usage:
-#   scripts/slurm_sweep.sh criteo   "500 1000 2000 4000 8000 16000 32000" 6
-#   scripts/slurm_sweep.sh nonnested "500 1000 2000" 6 --steps 1000
+#   scripts/slurm_sweep.sh criteo "500 1000 2000" 10 --variant full --steps 500
+#   scripts/slurm_sweep.sh nonnested "500 1000 2000 4000" 10 --steps 1000
 #
-# Then aggregate whatever has landed (safe to run while jobs are still going):
-#   python -c "from experiments.sweep_core import gather_results; \
-#              from experiments.run_cell_criteo import CELL_DIR; \
-#              import sys; \
-#              df = gather_results(CELL_DIR, [500,1000], list(range(6))); \
-#              df.to_csv('results/criteo_sweep_seeds.csv', index=False)"
+# Watch:   squeue -u $USER
+# Gather:  python scripts/gather_cells.py <dataset>
+#
+# Note: a generated job script is used rather than `sbatch --wrap`, because
+# --wrap does not survive bash process substitution or nested quoting.
 
 set -euo pipefail
 
@@ -23,34 +21,42 @@ DATASET="${1:?usage: slurm_sweep.sh <dataset> \"<N values>\" <n_seeds> [extra ce
 N_VALUES="${2:?}"
 N_SEEDS="${3:?}"
 shift 3
-EXTRA=("$@")
+EXTRA="$*"
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOGDIR="$REPO/logs/slurm_$DATASET"
 mkdir -p "$LOGDIR"
 
-# Build the (N, seed) work list; the array index selects a line.
+# Work list: one "N seed" pair per line; the array index selects a line.
 WORKLIST="$LOGDIR/worklist.txt"
 : > "$WORKLIST"
 for N in $N_VALUES; do
   for ((s = 0; s < N_SEEDS; s++)); do
-    echo "$N $s" >> "$WORKLIST"
+    printf '%s %s\n' "$N" "$s" >> "$WORKLIST"
   done
 done
 NCELLS=$(wc -l < "$WORKLIST")
-echo "[slurm] $DATASET: $NCELLS cells -> array 1-$NCELLS"
 
-sbatch --array="1-$NCELLS" \
-       --job-name="cell_$DATASET" \
-       --output="$LOGDIR/%A_%a.out" \
-       --time=02:00:00 \
-       --cpus-per-task=1 \
-       --mem=8G \
-       --wrap "
+JOBSCRIPT="$LOGDIR/job.sh"
+cat > "$JOBSCRIPT" <<EOF
+#!/bin/bash
+#SBATCH --job-name=cell_$DATASET
+#SBATCH --output=$LOGDIR/%A_%a.out
+#SBATCH --time=03:00:00
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=8G
 set -e
-cd $REPO
-read N SEED < <(sed -n \"\${SLURM_ARRAY_TASK_ID}p\" $WORKLIST)
-echo \"[cell] dataset=$DATASET N=\$N seed=\$SEED\"
+cd "$REPO"
 export OMP_NUM_THREADS=1
-python3 -m experiments.run_cell_$DATASET --N \$N --seed \$SEED ${EXTRA[*]:-}
-"
+export MKL_NUM_THREADS=1
+export PYTHONPATH="$REPO:\${PYTHONPATH:-}"
+LINE=\$(sed -n "\${SLURM_ARRAY_TASK_ID}p" "$WORKLIST")
+N=\$(echo "\$LINE" | awk '{print \$1}')
+SEED=\$(echo "\$LINE" | awk '{print \$2}')
+echo "[cell] dataset=$DATASET N=\$N seed=\$SEED host=\$(hostname)"
+python3 -m experiments.run_cell_$DATASET --N "\$N" --seed "\$SEED" $EXTRA
+EOF
+chmod +x "$JOBSCRIPT"
+
+echo "[slurm] $DATASET: $NCELLS cells -> array 1-$NCELLS"
+sbatch --array="1-$NCELLS" "$JOBSCRIPT"

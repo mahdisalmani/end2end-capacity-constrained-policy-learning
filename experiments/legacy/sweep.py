@@ -86,8 +86,10 @@ def _parse_args():
                    help="Re-run cells with a .FAILED marker.")
     p.add_argument("--no-aggregate", action="store_true",
                    help="Skip the post-sweep aggregate step.")
-    p.add_argument("--skip-mu", action="store_true",
-                   help="Skip the eval-time -mu refit variants for cheaper cells.")
+    p.add_argument("--with-eval-mu", dest="skip_mu", action="store_false",
+                   default=True,
+                   help="Also emit the *-mu variants, which re-solve mu on the "
+                        "EVAL split (an eval-information peek). Off by default.")
     return p.parse_args()
 
 
