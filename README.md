@@ -87,8 +87,8 @@ tests/                    numerical checks (IFT vs finite differences, F–G
 legacy/ipw_policy.py      original T=3 prototype the repo grew out of
 papers/                   reference paper (arXiv:2511.04909) + project reports
 docs/dgp.tex              LaTeX description of the non-nested DGP
-docs/cleanup_report.html  code-review / refactor / verification report
-docs/experiments_report.html  interactive results report (open in a browser)
+docs/report.html          single tabbed project report — code review, corrections,
+                          and three large interactive plots (open in a browser)
 ```
 
 ## Install & run
