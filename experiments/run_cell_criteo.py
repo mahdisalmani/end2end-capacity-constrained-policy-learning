@@ -15,7 +15,7 @@ import os
 import pickle
 
 from experiments import cell_core
-from experiments.common import subsample_rows
+from experiments.common import atomic_pickle_dump, subsample_rows
 from experiments.data_criteo import load_criteo
 
 
@@ -52,10 +52,7 @@ def load_or_build_criteo_cache(subsample, variant, split_seed):
         "eval_data": eval_data,
         "cfg": cfg,
     }
-    tmp = CRITEO_CACHE + ".tmp"
-    with open(tmp, "wb") as f:
-        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
-    os.replace(tmp, CRITEO_CACHE)
+    atomic_pickle_dump(payload, CRITEO_CACHE)
     return train_full, eval_data, cfg
 
 

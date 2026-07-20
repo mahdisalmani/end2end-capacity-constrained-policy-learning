@@ -30,7 +30,7 @@ import pickle
 import numpy as np
 
 from experiments import cell_core
-from experiments.common import S2_METHODS
+from experiments.common import S2_METHODS, atomic_pickle_dump
 from experiments.data_nonnested import generate_data_nonnested
 
 
@@ -91,11 +91,7 @@ def load_or_build_eval_cache():
         if isinstance(cache, dict) and cache.get("_key") == key:
             return cache["eval_data"]
     eval_data = _gen(N=NN_N_EVAL, seed=NN_EVAL_SEED)
-    tmp = EVAL_CACHE + ".tmp"
-    with open(tmp, "wb") as f:
-        pickle.dump({"_key": key, "eval_data": eval_data}, f,
-                    protocol=pickle.HIGHEST_PROTOCOL)
-    os.replace(tmp, EVAL_CACHE)
+    atomic_pickle_dump({"_key": key, "eval_data": eval_data}, EVAL_CACHE)
     return eval_data
 
 

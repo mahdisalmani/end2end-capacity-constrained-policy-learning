@@ -323,6 +323,25 @@ def eval_arms_row(method, arms_train, arms_eval, train_data, eval_data):
 
 # === Dataset-dict utilities ==================================================
 
+def atomic_pickle_dump(payload, path):
+    """Write a pickle so concurrent writers cannot clobber each other.
+
+    The temp name carries the pid: when N array jobs start at once with no
+    cache present, they all build it, and a shared temp path means one job's
+    os.replace() moves the file out from under another's, which then dies with
+    FileNotFoundError. With per-process temp names every writer succeeds and
+    the last rename wins — safe here because all writers produce identical
+    content for the same cache key.
+    """
+    import pickle
+
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "wb") as f:
+        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp, path)
+
+
 PER_ROW_KEYS = {"X", "T", "Y", "e_T", "E", "Y_pot"}
 
 

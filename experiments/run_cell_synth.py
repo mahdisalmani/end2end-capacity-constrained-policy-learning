@@ -67,11 +67,7 @@ def load_or_build_eval_cache():
         N=config.N_EVAL, seed=config.EVAL_SEED,
         D=config.D, T=config.T,
     )
-    tmp = EVAL_CACHE + ".tmp"
-    with open(tmp, "wb") as f:
-        pickle.dump({"_key": key, "eval_data": eval_data}, f,
-                    protocol=pickle.HIGHEST_PROTOCOL)
-    os.replace(tmp, EVAL_CACHE)
+    atomic_pickle_dump({"_key": key, "eval_data": eval_data}, EVAL_CACHE)
     return eval_data
 
 

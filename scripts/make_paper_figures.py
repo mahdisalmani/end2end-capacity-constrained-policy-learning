@@ -29,6 +29,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
+import matplotlib.patheffects as pe
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -121,20 +123,32 @@ def summarize(csv, metric, skewed=False):
     return out
 
 
-def draw(ax, data, methods, band=True, logy=False):
+# Uncertainty bands are drawn for the proposed methods only. With seven
+# series every band overlapping every other one produces mud and hides the
+# lines it is meant to qualify; restricting them keeps the figure legible and
+# puts the uncertainty where the claim is. The full per-method intervals are
+# in the data tables.
+BAND_FOR = ("F", "Gs")
+
+
+def draw(ax, data, methods, band=True, logy=False, xticks=None):
     for m in methods:
         if m not in data:
             continue
         N, mid, lo, hi = data[m]
         st = dict(STYLE[m])
         lbl = st.pop("label")
-        if band:
-            ax.fill_between(N, lo, hi, color=st["color"], alpha=0.13, lw=0, zorder=1)
+        if band and m in BAND_FOR:
+            ax.fill_between(N, lo, hi, color=st["color"], alpha=0.15, lw=0, zorder=2)
         ax.plot(N, mid, label=lbl, markeredgecolor="white", markeredgewidth=0.5, **st)
     ax.set_xscale("log")
     if logy:
         ax.set_yscale("log")
-    ax.grid(True, which="major", axis="both")
+    if xticks is not None:
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([f"{t//1000}k" if t >= 1000 else str(t) for t in xticks])
+        ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+    ax.grid(True, which="major", axis="y")
     ax.set_axisbelow(True)
 
 
@@ -156,11 +170,13 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
     wait = summarize(csv, "mean_wait_served", skewed=True)
     methods = [m for m in ORDER if m in val]
 
+    xticks = sorted({int(n) for v in val.values() for n in v[0]})
+
     fig, axes = plt.subplots(1, 3, figsize=(10.2, 2.85))
 
     # (a) policy value
     ax = axes[0]
-    draw(ax, val, methods)
+    draw(ax, val, methods, xticks=xticks)
     add_reference(ax, val, "treat_all", "treat-all")
     add_reference(ax, val, "random", "random")
     ax.set_xlabel("training size $N$")
@@ -169,21 +185,30 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
 
     # (b) allocation vs capacity — the panel that decides feasibility
     ax = axes[1]
-    draw(ax, alloc, methods)
+    draw(ax, alloc, methods, xticks=xticks)
     cap = CAP1[dataset]
     ax.axhline(cap, color="#c0392b", lw=1.1, ls=(0, (5, 3)), zorder=4)
-    ax.annotate(f"capacity $b={cap:g}$", xy=(0.015, cap), xycoords=("axes fraction", "data"),
-                xytext=(0, 3), textcoords="offset points",
-                fontsize=7, color="#c0392b", fontweight="bold", va="bottom")
+    # Shade the infeasible region and label the REGION rather than the line:
+    # "over capacity" is a state of the curve, and a region label cannot
+    # collide with whichever series happens to run near the threshold.
+    ax.axhspan(cap, 1.02, color="#c0392b", alpha=0.05, lw=0, zorder=0)
+    ax.annotate(f"infeasible  (> $b={cap:g}$)", xy=(0.035, 0.955),
+                xycoords="axes fraction", ha="left", va="top",
+                fontsize=7, color="#c0392b", fontweight="bold", zorder=7,
+                path_effects=[pe.withStroke(linewidth=2.6, foreground="white")])
     ax.set_xlabel("training size $N$")
     ax.set_ylabel("deployed mass on capped arm")
     ax.set_title("(b)  is the policy feasible?", loc="left", fontweight="bold")
-    top = max(cap * 1.18, max(np.max(v[3]) for v in alloc.values() if len(v[3])) * 1.02)
+    # Scale to the drawn series only. treat-all sits at 1.0 on this panel and
+    # is not plotted here, so including it would flatten every real curve
+    # against the axis (badly so when the cap is 0.1).
+    drawn_hi = [np.max(alloc[m][3]) for m in methods if m in alloc and len(alloc[m][3])]
+    top = max(cap * 1.35, (max(drawn_hi) * 1.10) if drawn_hi else cap * 1.35)
     ax.set_ylim(0, min(top, 1.02))
 
     # (c) operational cost
     ax = axes[2]
-    draw(ax, wait, methods, logy=True)
+    draw(ax, wait, methods, logy=True, xticks=xticks)
     add_reference(ax, wait, "treat_all", "treat-all", logy=True)
     ax.set_xlabel("training size $N$")
     ax.set_ylabel("mean wait time (served)")
@@ -196,7 +221,9 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
                       label=STYLE[m]["label"]) for m in methods]
     handles.append(Line2D([], [], color="#8a8a8a", lw=0.9, ls=(0, (4, 2)),
                           label="uncapped / trivial baselines"))
-    fig.legend(handles=handles, loc="lower center", ncol=min(4, len(handles)),
+    handles.append(Patch(facecolor="#2a78d6", alpha=0.15, edgecolor="none",
+                         label="95% CI (proposed methods; IQR in (c))"))
+    fig.legend(handles=handles, loc="lower center", ncol=min(5, len(handles)),
                frameon=False, bbox_to_anchor=(0.5, -0.13), columnspacing=1.4,
                handlelength=2.0)
     fig.suptitle(TITLE[dataset], y=1.03, fontsize=9.5, fontweight="bold")
