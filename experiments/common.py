@@ -21,6 +21,7 @@ Conventions:
     simulation loop does no torch / sklearn calls.
 """
 
+import os
 import time
 from collections import deque
 
@@ -313,11 +314,22 @@ def ipw_policy_value(arms, data):
 
 
 def eval_arms_row(method, arms_train, arms_eval, train_data, eval_data):
-    """Standard IPW row for one method's deterministic policy arms."""
+    """Standard IPW row for one method's deterministic policy arms.
+
+    When counterfactuals exist (synthetic / semi-synthetic data), also
+    records the DIRECT oracle value of the deployed assignment on eval —
+    the ground-truth quantity the IPW columns estimate. NaN on real data.
+    """
+    Y_pot = eval_data.get("Y_pot")
+    if Y_pot is not None and Y_pot.size and np.isfinite(Y_pot).all():
+        oracle_val = float(Y_pot[np.arange(len(arms_eval)), arms_eval].mean())
+    else:
+        oracle_val = float("nan")
     return {
         "method": method,
         "ipw_train": ipw_policy_value(arms_train, train_data),
         "ipw_val": ipw_policy_value(arms_eval, eval_data),
+        "oracle_val": oracle_val,
     }
 
 
