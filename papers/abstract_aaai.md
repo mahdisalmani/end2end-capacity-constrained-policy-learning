@@ -71,3 +71,12 @@ fixed property of the dataset, and the scale claim is load-bearing) and
 ever stops holding, the abstract must change anyway, not silently survive).
 The exact statistics live in the results section and the report, where they
 are regenerated with the experiments.
+
+## Sync with the LaTeX draft (2026-07-22)
+
+Canonical text now matches the co-authors' draft: the gap clause is inline
+LaTeX ($\tau\log|\mathcal{T}|$, phrased "within a bounded optimality
+gap"), and the evaluation sentence uses the co-author's phrasing "several
+datasets, including real and synthetic". The de-brittling of result numbers
+was already present in this version; no precise statistics remain in the
+abstract.
