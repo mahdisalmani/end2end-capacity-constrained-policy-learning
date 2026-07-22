@@ -1,1 +1,24 @@
 We study learning to allocate scarce treatments, such as housing assistance or hospital interventions, when a policy trained on observational data must respect long-run capacity constraints. The standard approach is two-stage: fit per-arm outcome models, then compute dual capacity prices that turn the predictions into a feasible assignment rule. Its prediction stage is decision-blind, since errors that flip allocations cost no more in training than errors that change nothing. We instead train the scoring model end-to-end, differentiating an inverse-propensity-weighted estimate of policy value through the equilibrium prices themselves, which preserves the dual-price structure that makes the policy implementable online. Two inner objectives give a choice of guarantees: a nonconvex formulation self-consistent with the deployed softmax policy, and a convex relaxation whose stationary points are exactly feasible in expectation, with the gap between the two bounded by tau log |T|. We evaluate on six datasets, four of them real, under a queueing simulator that prices infeasibility and delay by their deployed consequences. End-to-end training ranks first and second on the resulting deployment-adjusted value index at every delay cost, including zero. Two-stage baselines deploy above their capacity caps and wait 2 to 10 times longer in queue. On the largest dataset, 70,000 hospital patients, end-to-end also wins raw policy value (paired t = 9.2), and the margin survives a capacity-matched neural baseline. Where ground truth is measurable, flexible two-stage regression keeps a raw-value lead; the contribution of end-to-end training is that its policies are deployable as trained.
+
+----------------------------------------------------------------------
+CANDIDATE TITLES (recommended first)
+
+1. Deployable as Trained: End-to-End Policy Learning under Capacity Constraints
+   (echoes the abstract's closing sentence, so title and abstract make one argument; says method and setting in ten words)
+
+2. Training Through the Prices: End-to-End Learning of Capacity-Constrained Allocation Policies
+   (leads with the technical identity, differentiating through the equilibrium dual prices; the phrase is unique to this paper)
+
+3. Feasible by Construction: Differentiating Policy Value Through Equilibrium Capacity Prices
+   (leads with the convex objective's guarantee, exact feasibility in expectation; strongest if the theory is the reviewer draw)
+
+4. End-to-End Policy Learning Through Dual Capacity Prices
+   (the plain descriptive option, no colon; safest for indexing, least memorable)
+
+5. Prediction Is Not Deployment: End-to-End Learning for Capacity-Constrained Treatment Allocation
+   (names the two-stage failure the paper measures; punchiest, but claim-shaped titles draw combative reviews)
+
+6. What Queues Reveal: Deployment-Adjusted Evaluation and End-to-End Training of Capacity-Constrained Policies
+   (foregrounds the DAPV/queue contribution alongside the method; longest, use only if the index becomes the paper's centerpiece)
+
+Avoided on purpose: "Towards ...", "A Novel ...", "... : A Unified Framework" (reviewer-fatigued patterns), and anything claiming a raw-value win (false on the ground-truth suites; the honest hook is deployability).
