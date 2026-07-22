@@ -116,7 +116,20 @@ python -m experiments.sweep_criteo    --seeds 20 --workers 20   # downloads Crit
 # standalone studies (write results/tau_study.json, results/scaling.json)
 python scripts/tau_study.py
 python scripts/scaling_study.py
+
+# UCI-based experiments (download via the UCI API / ucimlrepo)
+scripts/slurm_sweep.sh adultsemi "500 1000 2000 4000 8000 16000" 10 --steps 800
+scripts/slurm_sweep.sh actg "250 500 750 1000 1497" 10 --steps 500
+scripts/slurm_regime.sh          # tightness x nonlinearity map
+python scripts/make_regime_figure.py
 ```
+
+`experiments/data_adult_semi.py` builds a semi-synthetic 8-arm allocation
+problem on real Adult-census covariates (oracle-scored; dials for effect
+nonlinearity, capacity tightness and outcome noise — the regime maps sweep
+them). `experiments/data_actg.py` loads ACTG Study 175, a real four-arm
+randomized HIV trial where capping the combination-therapy arms necessarily
+binds.
 
 On a SLURM cluster, prefer one job per cell over the local multiprocessing
 pool — cells are independent and resumable, so they map onto an array job and

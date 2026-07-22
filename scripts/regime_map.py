@@ -63,13 +63,17 @@ def main():
     p.add_argument("--lam", type=float, required=True)
     p.add_argument("--cap-scale", type=float, required=True, dest="cap_scale")
     p.add_argument("--seed", type=int, required=True)
+    p.add_argument("--sigma", type=float, default=0.5,
+                   help="outcome noise sd (SNR dial: effects have scale ~1-4)")
     p.add_argument("--steps", type=int, default=STEPS)
     p.add_argument("--force", action="store_true")
     args = p.parse_args()
 
     os.makedirs(OUT_DIR, exist_ok=True)
+    sig_tag = "" if args.sigma == 0.5 else f"_sig{args.sigma:g}"
     out = os.path.join(
-        OUT_DIR, f"cell_lam{args.lam:g}_cap{args.cap_scale:g}_s{args.seed}.csv")
+        OUT_DIR,
+        f"cell_lam{args.lam:g}_cap{args.cap_scale:g}{sig_tag}_s{args.seed}.csv")
     if os.path.exists(out) and not args.force:
         print(f"[regime] cached: {out}")
         return
@@ -78,7 +82,8 @@ def main():
     torch.set_num_threads(1)
 
     train_full, eval_data, cfg = load_adult_semi(
-        te_nonlinearity=args.lam, cap_scale=args.cap_scale, seed=0)
+        te_nonlinearity=args.lam, cap_scale=args.cap_scale,
+        sigma_y=args.sigma, seed=0)
     T, D, TAU, B = (int(cfg["T"]), int(cfg["D"]),
                     float(cfg["TAU"]), cfg["B"])
     td = subsample_rows(train_full, N_TRAIN, seed=9973 * args.seed + 17)
@@ -90,7 +95,8 @@ def main():
 
     def record(method, arms_eval):
         rows.append({
-            "lam": args.lam, "cap_scale": args.cap_scale, "seed": args.seed,
+            "lam": args.lam, "cap_scale": args.cap_scale,
+            "sigma": args.sigma, "seed": args.seed,
             "method": method,
             "oracle_val": oracle_value(arms_eval, eval_data),
             "violation": violation(arms_eval, B),

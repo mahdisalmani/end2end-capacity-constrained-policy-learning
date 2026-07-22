@@ -79,16 +79,23 @@ STYLE = {
 ORDER = ["F", "Gs", "Alt", "S2-linear", "S2-tree", "S2-knn", "S2-mlp"]
 REFS = {"treat_all": "treat-all", "random": "random"}
 
-CAP1 = {"criteo": 0.50, "lalonde": 0.30, "nonnested": 0.10}
+CAP1 = {"criteo": 0.50, "lalonde": 0.30, "nonnested": 0.10,
+        "adultsemi": 0.08, "actg": 0.30}
 VALUE_LABEL = {
     "criteo":    "IPW policy value  (P(visit))",
     "lalonde":   "IPW policy value  (\\$1k)",
     "nonnested": "IPW policy value",
+    "adultsemi": "oracle policy value",
+    "actg":      "IPW policy value  (CD4 / 100)",
 }
+# Panel (a) metric: ground truth where counterfactuals exist, IPW otherwise.
+VALUE_METRIC = {"adultsemi": "oracle_val"}
 TITLE = {
     "criteo":    "Criteo Uplift (real; 2 arms, capacity 0.50)",
     "lalonde":   "LaLonde NSW + PSID-1 (real; 2 arms, capacity 0.30)",
     "nonnested": "Non-nested synthetic DGP (10 arms, capacity 0.10 each)",
+    "adultsemi": "Adult census semi-synthetic (real covariates; 8 arms, capacity 0.08 each)",
+    "actg":      "ACTG 175 (real 4-arm randomized HIV trial; combination arms capped at 0.30)",
 }
 
 
@@ -165,7 +172,7 @@ def add_reference(ax, data, key, label, logy=False, fmt="{}"):
 
 
 def make_figure(dataset, csv, outdir, panel_c="wait"):
-    val = summarize(csv, "ipw_val")
+    val = summarize(csv, VALUE_METRIC.get(dataset, "ipw_val"))
     alloc = summarize(csv, "alloc_1")
     wait = summarize(csv, "mean_wait_served", skewed=True)
     methods = [m for m in ORDER if m in val]
@@ -240,9 +247,10 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
 
 def main():
     p = argparse.ArgumentParser(description="Build the two paper figures.")
-    p.add_argument("--synthetic", default="nonnested",
-                   choices=["nonnested", "synth"])
-    p.add_argument("--real", default="criteo", choices=["criteo", "lalonde"])
+    p.add_argument("--synthetic", default="adultsemi",
+                   choices=["adultsemi", "nonnested", "synth"])
+    p.add_argument("--real", default="actg",
+                   choices=["actg", "criteo", "lalonde"])
     p.add_argument("--outdir", default="figures")
     args = p.parse_args()
 

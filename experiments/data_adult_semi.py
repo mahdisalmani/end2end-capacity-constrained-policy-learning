@@ -168,6 +168,7 @@ def load_adult_semi(
     te_nonlinearity=0.85,
     cap_scale=1.0,
     conf_strength=1.5,
+    sigma_y=SIGMA_Y,
     train_frac=0.7,
     seed=0,
 ):
@@ -178,8 +179,8 @@ def load_adult_semi(
     MASTER_SEED so every cell sees the same ground truth.
     """
     key = (round(te_nonlinearity, 4), round(cap_scale, 4),
-           round(conf_strength, 4), round(train_frac, 4), seed, MASTER_SEED,
-           DGP_VERSION)
+           round(conf_strength, 4), round(float(sigma_y), 4),
+           round(train_frac, 4), seed, MASTER_SEED, DGP_VERSION)
     cache = os.path.join(CACHE_DIR, f"adult_semi_{abs(hash(key)) % 10**10}.pkl")
     if os.path.exists(cache):
         with open(cache, "rb") as f:
@@ -193,7 +194,7 @@ def load_adult_semi(
     M, E, bump_cov = _build_surfaces(X, te_nonlinearity, conf_strength, master)
 
     draw = np.random.default_rng(10_000 + seed)
-    eps = SIGMA_Y * draw.normal(size=(n, T_ARMS))
+    eps = float(sigma_y) * draw.normal(size=(n, T_ARMS))
     Y_pot = M + eps
     T_obs = np.array([draw.choice(T_ARMS, p=E[i]) for i in range(n)])
     Y_obs = Y_pot[np.arange(n), T_obs]
@@ -210,7 +211,8 @@ def load_adult_semi(
     train_data, eval_data = _slice(tr), _slice(ev)
     cfg = {"N": int(n_train), "T": T_ARMS, "D": int(d), "TAU": 0.1, "B": B,
            "te_nonlinearity": te_nonlinearity, "cap_scale": cap_scale,
-           "conf_strength": conf_strength, "features": feat_names}
+           "conf_strength": conf_strength, "sigma_y": float(sigma_y),
+           "features": feat_names}
 
     # ---- binding check (the LaLonde lesson): does the ORACLE want more of
     # each scarce arm than its cap allows?

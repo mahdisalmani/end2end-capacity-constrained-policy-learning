@@ -24,7 +24,8 @@ from experiments.cell_core import cell_csv_path  # noqa: E402
 
 def main():
     p = argparse.ArgumentParser(description="Gather SLURM cell CSVs.")
-    p.add_argument("dataset", choices=["criteo", "lalonde", "nonnested", "synth"])
+    p.add_argument("dataset", choices=["criteo", "lalonde", "nonnested", "synth",
+                                    "adultsemi", "actg"])
     p.add_argument("--out", type=str, default=None)
     p.add_argument("--worklist", type=str, default=None,
                    help="Defaults to logs/slurm_<dataset>/worklist.txt")
