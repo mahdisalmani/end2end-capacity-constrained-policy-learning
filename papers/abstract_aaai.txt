@@ -28,3 +28,14 @@ UPDATE (2026-07-22) — co-author proposal, now the recommended pick:
 0. Differentiating Through Dual Prices: End-to-End Policy Learning Under Capacity Constraints
    (co-author's title with one fix: "End-to-End Allocation" -> "End-to-End Policy Learning", since the learning is what is end-to-end; the hook names the exact mechanism and echoes the differentiable-optimization lineage for reviewer bidding)
    Hybrid variant if the result should share the title: "Differentiating Through Dual Prices: Capacity-Constrained Policies That Deploy as Trained"
+
+NO-COLON OPTIONS (2026-07-22), ranked:
+
+1. End-to-End Policy Learning Through Dual Capacity Prices
+   (recommended: eight words, the mechanism rides inside "through dual capacity prices")
+2. Learning Capacity-Constrained Allocation Policies by Differentiating Through Dual Prices
+   (most complete: task + setting + exact mechanism; ten words)
+3. Learning Deployable Allocation Policies Through Dual Capacity Prices
+   (result-forward variant: "deployable" replaces the setting term)
+4. Differentiating Through Dual Prices for Capacity-Constrained Policy Learning
+   (co-author's hook as a single clause; the "for" joint is why it ranks last)
