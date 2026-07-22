@@ -57,3 +57,17 @@ trained.
   (combined crossover 0.0); waits and caps in the per-dataset sweep CSVs;
   Diabetes-130 paired differences F minus S2-dr = +0.045 (t = 9.16) and
   F minus S2-mlp = +0.051 (t = 9.42) at N = 48,000, 10 seeds.
+
+## De-brittling pass (2026-07-22, co-author feedback)
+
+The results sentences no longer carry numbers that can move as experiments
+are re-run: "six datasets, four of them real" became "real and synthetic
+datasets" (the suite has since grown a seventh), "ranks first and second"
+became "take the top slots" (robust to which of F/G leads), "2 to 10 times"
+became "several times", and "paired t = 9.2" became "statistically
+significant". Kept on purpose: the seventy-thousand-patient cohort size (a
+fixed property of the dataset, and the scale claim is load-bearing) and
+"including zero delay" (the crossover-at-zero claim is the headline; if it
+ever stops holding, the abstract must change anyway, not silently survive).
+The exact statistics live in the results section and the report, where they
+are regenerated with the experiments.
