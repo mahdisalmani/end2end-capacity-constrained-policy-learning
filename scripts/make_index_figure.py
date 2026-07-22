@@ -36,9 +36,11 @@ STYLE = {
     "S2-lasso":  dict(color="#1baf7a", lw=1.1, label="S2-lasso"),
     "S2-tree":   dict(color="#eb6834", lw=1.6, label="S2-tree"),
     "S2-knn":    dict(color="#4a3aa7", lw=1.1, label="S2-knn"),
+    "S2-dr":     dict(color="#c8321e", lw=1.1, label="S2-dr"),
 }
 DS_LABEL = {"nonnested": "non-\nnested", "adultsemi": "Adult\nsemi",
-            "actg": "ACTG\n175", "criteo": "Criteo", "lalonde": "LaLonde"}
+            "actg": "ACTG\n175", "diabetes": "Diabetes\n130",
+            "criteo": "Criteo", "lalonde": "LaLonde"}
 
 
 def main():
@@ -61,10 +63,14 @@ def main():
     deep = min(min(d["combined"][m]) for m in ("S2-lasso", "S2-tree")
                if m in d["combined"])
     ax.annotate(f"S2-lasso / S2-tree continue to {deep:+.1f}",
-                xy=(0.0125, lo + 0.06), ha="left", fontsize=6.6,
+                xy=(0.0415, lo + 0.06), ha="right", fontsize=6.6,
                 color="#8a6a5a")
     cross = d["combined_crossover"]
-    if cross is not None:
+    if cross == 0.0:
+        ax.annotate("end-to-end leads at every κ,\nincluding κ = 0 (delay-free)",
+                    xy=(0.0055, 0.99), fontsize=7, va="top",
+                    color="#444444")
+    elif cross is not None:
         ax.axvline(cross, color="#666666", lw=0.9, ls=(0, (4, 3)))
         ax.annotate(f"end-to-end leads\nfor all κ ≥ {cross:.4f}",
                     xy=(cross, 1.02), xytext=(6, -2),
@@ -72,14 +78,17 @@ def main():
                     color="#444444")
     ax.set_xlabel("κ — cost of one waiting period (fraction of value-at-stake)")
     ax.set_ylabel("combined deployability index")
-    ax.set_title("(a)  DAPV(κ) averaged over all five datasets",
+    n_ds = len(d["datasets"])
+    ax.set_title(f"(a)  DAPV(κ) averaged over all {n_ds} datasets",
                  loc="left", fontweight="bold")
     ax.grid(True, axis="y", alpha=0.3)
     ax.legend(fontsize=6.3, frameon=False, ncol=1, loc="lower right",
               bbox_to_anchor=(1.0, 0.02))
 
     ax = axes[1]
-    ds_order = ["nonnested", "adultsemi", "actg", "criteo", "lalonde"]
+    ds_order = ["diabetes", "nonnested", "adultsemi", "actg", "criteo",
+                "lalonde"]
+    ds_order = [ds for ds in ds_order if ds in d["datasets"]]
     ys, labels = [], []
     NEVER_Y = 0.09
     for i, ds in enumerate(ds_order):
@@ -94,7 +103,8 @@ def main():
         else:
             ax.plot([i, i], [0, c], color="#2a78d6", lw=1.6, zorder=3)
             ax.scatter([i], [c], s=42, color="#2a78d6", zorder=5)
-            ax.annotate(f"{c:.4f}", xy=(i, c), xytext=(0, 6),
+            lbl = "0" if c == 0.0 else f"{c:.4f}"
+            ax.annotate(lbl, xy=(i, c), xytext=(0, 6),
                         textcoords="offset points", ha="center", fontsize=6.6,
                         color="#1c4b7a")
             ys.append(c)

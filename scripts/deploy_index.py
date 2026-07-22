@@ -42,7 +42,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-DATASETS = ["adultsemi", "actg", "criteo", "lalonde", "nonnested"]
+DATASETS = ["adultsemi", "actg", "diabetes", "criteo", "lalonde", "nonnested"]
 ORACLE = {"adultsemi", "nonnested"}     # ground-truth deployed value exists
 METHODS = ["F", "Gs", "Alt", "S2-linear", "S2-lasso", "S2-tree", "S2-knn",
            "S2-dr", "S2-mlp", "random", "treat_all"]
@@ -65,6 +65,9 @@ def control_value(ds):
     if ds == "actg":
         from experiments.data_actg import load_actg
         _, ev, _ = load_actg()
+    elif ds == "diabetes":
+        from experiments.run_cell_diabetes import load_or_build_cache
+        _, ev, _ = load_or_build_cache(0.7, 0)
     elif ds == "criteo":
         from experiments.run_cell_criteo import load_or_build_criteo_cache
         _, ev, _ = load_or_build_criteo_cache(50_000, "full", 0)

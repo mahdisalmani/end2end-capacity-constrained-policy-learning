@@ -395,6 +395,24 @@ def fit_logistic_propensity(X, T, clip=(0.05, 0.95), fit_idx=None):
     return np.clip(e1, clip[0], clip[1])
 
 
+def fit_multinomial_propensity(X, T, n_arms, clip=0.02, fit_idx=None):
+    """e_t(x) = P(T=t | X=x) for multi-arm data via multinomial logistic
+    regression. Fit on `fit_idx` (training rows) only, predict for all rows;
+    per-class probabilities are clipped below at `clip` and renormalized so
+    IPW weights stay bounded. Returns the full (n, n_arms) matrix."""
+    from sklearn.linear_model import LogisticRegression
+
+    lr = LogisticRegression(C=1.0, max_iter=3000)
+    if fit_idx is None:
+        lr.fit(X, T)
+    else:
+        lr.fit(X[fit_idx], T[fit_idx])
+    E = np.zeros((len(T), n_arms))
+    E[:, lr.classes_.astype(int)] = lr.predict_proba(X)
+    E = np.clip(E, clip, 1.0)
+    return E / E.sum(axis=1, keepdims=True)
+
+
 def standardize_train_fit(X, fit_idx=None):
     """Standardize X with mean/scale estimated on `fit_idx` rows only."""
     from sklearn.preprocessing import StandardScaler

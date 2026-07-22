@@ -153,7 +153,10 @@ def draw(ax, data, methods, band=True, logy=False, xticks=None):
         ax.set_yscale("log")
     if xticks is not None:
         ax.set_xticks(xticks)
-        ax.set_xticklabels([f"{t//1000}k" if t >= 1000 else str(t) for t in xticks])
+        # N=1000 and N=1497 must not both read "1k": keep 2 significant
+        # digits above 1k (1k, 1.5k, 2k, 16k)
+        ax.set_xticklabels([f"{t/1000:.3g}k" if t >= 1000 else str(t)
+                            for t in xticks])
         ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
     ax.grid(True, which="major", axis="y")
     ax.set_axisbelow(True)
