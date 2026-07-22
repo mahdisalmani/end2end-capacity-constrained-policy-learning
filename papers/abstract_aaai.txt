@@ -22,3 +22,9 @@ CANDIDATE TITLES (recommended first)
    (foregrounds the DAPV/queue contribution alongside the method; longest, use only if the index becomes the paper's centerpiece)
 
 Avoided on purpose: "Towards ...", "A Novel ...", "... : A Unified Framework" (reviewer-fatigued patterns), and anything claiming a raw-value win (false on the ground-truth suites; the honest hook is deployability).
+
+UPDATE (2026-07-22) — co-author proposal, now the recommended pick:
+
+0. Differentiating Through Dual Prices: End-to-End Policy Learning Under Capacity Constraints
+   (co-author's title with one fix: "End-to-End Allocation" -> "End-to-End Policy Learning", since the learning is what is end-to-end; the hook names the exact mechanism and echoes the differentiable-optimization lineage for reviewer bidding)
+   Hybrid variant if the result should share the title: "Differentiating Through Dual Prices: Capacity-Constrained Policies That Deploy as Trained"
