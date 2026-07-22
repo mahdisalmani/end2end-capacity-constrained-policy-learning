@@ -1,0 +1,17 @@
+RECOMMENDED (no colon)
+End-to-End Policy Learning Through Dual Capacity Prices
+
+NO-COLON OPTIONS, RANKED
+1. End-to-End Policy Learning Through Dual Capacity Prices
+2. Learning Capacity-Constrained Allocation Policies by Differentiating Through Dual Prices
+3. Learning Deployable Allocation Policies Through Dual Capacity Prices
+4. Differentiating Through Dual Prices for Capacity-Constrained Policy Learning
+
+WITH-COLON OPTIONS, RANKED
+1. Differentiating Through Dual Prices: End-to-End Policy Learning Under Capacity Constraints
+2. Differentiating Through Dual Prices: Capacity-Constrained Policies That Deploy as Trained
+3. Deployable as Trained: End-to-End Policy Learning under Capacity Constraints
+4. Training Through the Prices: End-to-End Learning of Capacity-Constrained Allocation Policies
+5. Feasible by Construction: Differentiating Policy Value Through Equilibrium Capacity Prices
+6. Prediction Is Not Deployment: End-to-End Learning for Capacity-Constrained Treatment Allocation
+7. What Queues Reveal: Deployment-Adjusted Evaluation and End-to-End Training of Capacity-Constrained Policies
