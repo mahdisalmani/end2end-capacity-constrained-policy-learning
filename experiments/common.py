@@ -91,9 +91,11 @@ def arms_and_assigner_from_model(model, train_data, eval_data, B, cap_buffer):
     return arms_train, arms_eval, assigner
 
 
-def s2_arms_and_assigner(train_data, eval_data, T, B, method):
+def s2_arms_and_assigner(train_data, eval_data, T, B, method, mlp_steps=500):
     """Fit one S2 pipeline (outcome models -> dual LP -> argmax policy).
 
+    `mlp_steps` applies to method == "mlp" only and should match the
+    end-to-end training steps (capacity-matched baseline).
     Returns (arms_train, arms_eval, assigner).
     """
     outcome_models = fit_outcome_models(
@@ -102,6 +104,7 @@ def s2_arms_and_assigner(train_data, eval_data, T, B, method):
         Y_train=train_data["Y"],
         T=T, method=method,
         E_train=train_data["E"],
+        mlp_steps=mlp_steps,
     )
     M_hat_train = get_mhat_matrix(outcome_models, train_data["X"], T)
     mu_hat, _, _, _ = solve_dual_lp(M_hat_train, B, verbose=False)

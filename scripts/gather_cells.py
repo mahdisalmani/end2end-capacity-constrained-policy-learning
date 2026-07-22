@@ -25,14 +25,22 @@ from experiments.cell_core import cell_csv_path  # noqa: E402
 def main():
     p = argparse.ArgumentParser(description="Gather SLURM cell CSVs.")
     p.add_argument("dataset", choices=["criteo", "lalonde", "nonnested", "synth",
-                                    "adultsemi", "actg", "diabetes"])
+                                    "adultsemi", "actg", "diabetes",
+                                    "mechanism"])
     p.add_argument("--out", type=str, default=None)
+    p.add_argument("--amp", type=float, default=None,
+                   help="mechanism only: nuisance amplitude selecting the cell dir")
     p.add_argument("--worklist", type=str, default=None,
                    help="Defaults to logs/slurm_<dataset>/worklist.txt")
     args = p.parse_args()
 
     mod = importlib.import_module(f"experiments.run_cell_{args.dataset}")
-    cell_dir = mod.CELL_DIR
+    if args.dataset == "mechanism":
+        from experiments.data_mechanism import AMP_DEFAULT
+        amp = AMP_DEFAULT if args.amp is None else args.amp
+        cell_dir = mod.cell_dir_for(amp)
+    else:
+        cell_dir = mod.CELL_DIR
     worklist = args.worklist or f"logs/slurm_{args.dataset}/worklist.txt"
     out = args.out or f"results/{args.dataset}_sweep_seeds.csv"
 

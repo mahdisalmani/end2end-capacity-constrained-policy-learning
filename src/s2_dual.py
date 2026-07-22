@@ -77,7 +77,8 @@ class _MLPRegressor:
         return out.reshape(-1)
 
 
-def fit_outcome_models(X_train, T_train, Y_train, T, method, E_train=None):
+def fit_outcome_models(X_train, T_train, Y_train, T, method, E_train=None,
+                       mlp_steps=500):
     """
     Fit per-treatment conditional mean outcome models.
 
@@ -164,7 +165,7 @@ def fit_outcome_models(X_train, T_train, Y_train, T, method, E_train=None):
             k = min(10, max(1, mask.sum() - 1))
             reg = KNeighborsRegressor(n_neighbors=k)
         elif method == "mlp":
-            reg = _MLPRegressor(hidden=64, steps=500, lr=5e-3, seed=int(t))
+            reg = _MLPRegressor(hidden=64, steps=mlp_steps, lr=5e-3, seed=int(t))
         else:
             raise ValueError(f"Unknown method: {method}")
 

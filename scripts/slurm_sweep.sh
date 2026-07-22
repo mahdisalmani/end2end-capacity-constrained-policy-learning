@@ -24,7 +24,10 @@ shift 3
 EXTRA="$*"
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOGDIR="$REPO/logs/slurm_$DATASET"
+# SWEEP_SUFFIX isolates concurrent submissions of the same dataset with
+# different EXTRA args (each submission's worklist/job script is read at
+# job runtime, so sharing a LOGDIR would race).
+LOGDIR="$REPO/logs/slurm_$DATASET${SWEEP_SUFFIX:-}"
 mkdir -p "$LOGDIR"
 
 # Work list: one "N seed" pair per line; the array index selects a line.

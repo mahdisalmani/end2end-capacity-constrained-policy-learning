@@ -139,10 +139,11 @@ def run_cell_generic(
         add("Gs", *arms_and_assigner_from_model(model_Gs, td, eval_data,
                                                 B, cap_buffer))
 
-        # S2 two-stage baselines
+        # S2 two-stage baselines (mlp gets the e2e step budget: matched)
         for method in s2_methods:
             add(f"S2-{method}",
-                *s2_arms_and_assigner(td, eval_data, T, B, method))
+                *s2_arms_and_assigner(td, eval_data, T, B, method,
+                                      mlp_steps=steps))
 
         # Annotate rows with cell coords.
         for r in rows:
@@ -159,6 +160,61 @@ def run_cell_generic(
         with open(failed, "w") as f:
             f.write(traceback.format_exc())
         return []
+
+
+def augment_cell_generic(
+    cell_dir,
+    prepare,
+    N, seed,
+    s2_methods,
+    N_sim=1000,
+    lambda_people=1.0,
+    max_time_mult=1.5,
+    mlp_steps=500,
+):
+    """Append missing S2 method rows to an EXISTING cell CSV.
+
+    Used to add a baseline (e.g. the capacity-matched `mlp`) to sweeps
+    that already ran, without re-training the end-to-end methods. The
+    torch/numpy seeding matches run_cell_generic, and `prepare` is the
+    same callable, so the training set is bit-identical to the original
+    cell's. Returns the list of appended row-dicts ([] if nothing to do).
+    """
+    torch.set_num_threads(1)
+    torch.set_default_dtype(torch.float64)
+
+    out_path = cell_csv_path(cell_dir, N, seed)
+    if not os.path.exists(out_path):
+        print(f"[augment] no cell at {out_path}; skipping")
+        return []
+    df = pd.read_csv(out_path)
+    todo = [m for m in s2_methods if f"S2-{m}" not in set(df["method"])]
+    if not todo:
+        return []
+
+    td, eval_data, T, D, TAU, B = prepare(N, seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    rows = []
+    for method in todo:
+        arms_train, arms_eval, assigner = s2_arms_and_assigner(
+            td, eval_data, T, B, method, mlp_steps=mlp_steps)
+        srow = simulate_one_method(
+            assigner, f"S2-{method}", eval_data, T, B, N_sim,
+            lambda_people, max_time_mult, sim_seed=seed,
+        )
+        srow.update(eval_arms_row(f"S2-{method}", arms_train, arms_eval,
+                                  td, eval_data))
+        srow["N"] = int(N)
+        srow["seed"] = int(seed)
+        rows.append(srow)
+
+    out = pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
+    tmp = out_path + f".tmp{os.getpid()}"
+    out.to_csv(tmp, index=False)
+    os.replace(tmp, out_path)
+    return rows
 
 
 def print_cell_rows(rows, cell_dir, N, seed):
