@@ -86,16 +86,15 @@ def main():
     ds_order = ["diabetes", "nonnested", "adultsemi", "actg", "criteo",
                 "lalonde"]
     ds_order = [ds for ds in ds_order if ds in d["datasets"]]
-    ys, labels = [], []
+    ys, labels, ctrl_ix = [], [], []
     NEVER_Y = 0.09
     for i, ds in enumerate(ds_order):
         c = d["datasets"][ds]["crossover"]
         labels.append(DS_LABEL[ds])
         if c is None:
-            ax.scatter([i], [NEVER_Y], marker="^", s=42, color="#a03a31", zorder=5)
-            ax.annotate("never", xy=(i, NEVER_Y), xytext=(0, 6),
-                        textcoords="offset points", ha="center",
-                        fontsize=7.5, color="#a03a31")
+            ax.scatter([i], [NEVER_Y], marker="o", s=42, color="#8a8a8a",
+                       zorder=5)
+            ctrl_ix.append(i)
             ys.append(np.nan)
         else:
             ax.plot([i, i], [0, c], color="#2a78d6", lw=1.6, zorder=3)
@@ -105,6 +104,10 @@ def main():
                         textcoords="offset points", ha="center", fontsize=7.5,
                         color="#1c4b7a")
             ys.append(c)
+    if ctrl_ix:
+        ax.annotate("no gap (controls)", xy=(float(np.mean(ctrl_ix)), NEVER_Y),
+                    xytext=(0, 8), textcoords="offset points", ha="center",
+                    fontsize=7.5, color="#6a6a6a")
     ax.set_xticks(range(len(ds_order)), labels, fontsize=7.5)
     ax.set_xlim(-0.55, len(ds_order) - 0.45)
     ax.tick_params(axis="x", pad=2)
