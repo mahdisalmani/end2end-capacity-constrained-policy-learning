@@ -67,8 +67,8 @@ def main():
         ax.scatter([w], [ag.loc[m, "V"]], s=52, color=st["color"], zorder=5,
                    marker="s" if over else "o",
                    edgecolor="#a03a31" if over else "none", linewidth=1.4)
-        dy = {"Gs": -9, "Alt": 5, "F": 5, "S2-linear": -9,
-              "S2-knn": 5, "S2-tree": -9}.get(m, 5)
+        dy = {"Gs": -9, "Alt": 5, "F": 5, "S2-linear": 5,
+              "S2-knn": -9, "S2-tree": -9}.get(m, 5)
         dx, ha = ((-5, "right") if m == "S2-linear" else (5, "left"))
         ax.annotate(st["label"].split(" (")[0], xy=(w, ag.loc[m, "V"]),
                     xytext=(dx, dy), textcoords="offset points", fontsize=7.5,

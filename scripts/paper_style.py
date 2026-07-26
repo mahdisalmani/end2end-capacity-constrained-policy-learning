@@ -31,17 +31,17 @@ METHOD_STYLE = {
     "Alt":       dict(color="#e87ba4", lw=1.6, marker="^", zorder=5,
                       label="Alt (dual refresh)"),
     "S2-linear": dict(color="#eda100", lw=1.1, marker="v", zorder=3,
-                      alpha=0.9, label="S2-linear"),
+                      alpha=0.9, label="PtO-linear"),
     "S2-lasso":  dict(color="#1baf7a", lw=1.1, marker="<", zorder=3,
-                      alpha=0.9, label="S2-lasso"),
+                      alpha=0.9, label="PtO-lasso"),
     "S2-tree":   dict(color="#eb6834", lw=1.1, marker="D", zorder=3,
-                      alpha=0.9, label="S2-tree"),
+                      alpha=0.9, label="PtO-tree"),
     "S2-knn":    dict(color="#4a3aa7", lw=1.1, marker="P", zorder=3,
-                      alpha=0.9, label="S2-knn"),
+                      alpha=0.9, label="PtO-knn"),
     "S2-dr":     dict(color="#e34948", lw=1.1, marker="*", zorder=3,
-                      alpha=0.9, label="S2-dr"),
+                      alpha=0.9, label="PtO-dr"),
     "S2-mlp":    dict(color="#c8321e", lw=1.4, marker="X", zorder=4,
-                      ls=(0, (5, 2)), label="S2-mlp (capacity-matched)"),
+                      ls=(0, (5, 2)), label="PtO-mlp (capacity-matched)"),
 }
 
 

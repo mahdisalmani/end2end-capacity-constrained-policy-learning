@@ -127,15 +127,18 @@ def draw(ax, data, methods, band=True, logy=False, xticks=None):
     ax.set_axisbelow(True)
 
 
-def add_reference(ax, data, key, label, logy=False, fmt="{}"):
-    """Infeasible / trivial baselines as a flat annotated line, not a series."""
+def add_reference(ax, data, key, label, logy=False):
+    """Infeasible / trivial baselines as a flat annotated line, not a series.
+
+    The label hangs just outside the right edge of the axes, on the line's
+    level: it can never collide with a series or a panel title there."""
     if key not in data:
         return None
     N, mid, _, _ = data[key]
     ax.plot(N, mid, color="#8a8a8a", lw=0.9, ls=(0, (4, 2)), zorder=2)
-    ax.annotate(label, xy=(N[-1], mid[-1]), xytext=(-2, 3),
-                textcoords="offset points", ha="right", va="bottom",
-                fontsize=6.8, color="#6a6a6a")
+    ax.annotate(label, xy=(N[-1], mid[-1]), xytext=(3, 0),
+                textcoords="offset points", ha="left", va="center",
+                fontsize=7.5, color="#6a6a6a", annotation_clip=False)
     return mid[-1]
 
 
@@ -195,7 +198,7 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
                       markeredgecolor="white", markeredgewidth=0.5,
                       label=STYLE[m]["label"]) for m in methods]
     handles.append(Line2D([], [], color="#8a8a8a", lw=0.9, ls=(0, (4, 2)),
-                          label="uncapped / trivial baselines"))
+                          label="uncapped / trivial references"))
     handles.append(Patch(facecolor="#2a78d6", alpha=0.15, edgecolor="none",
                          label="95% CI (proposed methods; IQR in (c))"))
     fig.legend(handles=handles, loc="lower center", ncol=min(5, len(handles)),

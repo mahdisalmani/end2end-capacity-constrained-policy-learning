@@ -57,14 +57,14 @@ def main():
     ax.set_ylim(lo, 1.05)
     deep = min(min(d["combined"][m]) for m in ("S2-lasso", "S2-tree")
                if m in d["combined"])
-    ax.annotate(f"S2-lasso / S2-tree continue to {deep:+.1f}",
-                xy=(0.0415, lo + 0.06), ha="right", fontsize=7.5,
+    ax.annotate(f"PtO-lasso / PtO-tree reach {deep:+.0f}",
+                xy=(0.0415, lo + 0.17), ha="right", fontsize=7.5,
                 color="#8a6a5a")
     cross = d["combined_crossover"]
     if cross == 0.0:
-        ax.annotate("end-to-end leads at every κ,\nincluding κ = 0 (delay-free)",
-                    xy=(0.0055, 0.99), fontsize=8, va="top",
-                    color="#444444")
+        ax.annotate("end-to-end leads at every κ, including κ = 0 (delay-free)",
+                    xy=(0.5, 1.02), xycoords="axes fraction", ha="center",
+                    va="bottom", fontsize=8, color="#444444")
     elif cross is not None:
         ax.axvline(cross, color="#666666", lw=0.9, ls=(0, (4, 3)))
         ax.annotate(f"end-to-end leads\nfor all κ ≥ {cross:.4f}",
@@ -75,7 +75,7 @@ def main():
     ax.set_ylabel("combined deployability index")
     n_ds = len(d["datasets"])
     ax.set_title(f"(a)  DAPV(κ) averaged over all {n_ds} datasets",
-                 loc="left", fontweight="bold")
+                 loc="left", fontweight="bold", pad=16)
     ax.grid(True, axis="y", alpha=0.3)
     handles, lbls = ax.get_legend_handles_labels()
     fig.legend(handles, lbls, loc="lower center", ncol=5, frameon=False,
