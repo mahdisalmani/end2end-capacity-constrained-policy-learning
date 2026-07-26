@@ -79,7 +79,7 @@ def main():
     ax.grid(True, axis="y", alpha=0.3)
     handles, lbls = ax.get_legend_handles_labels()
     fig.legend(handles, lbls, loc="lower center", ncol=5, frameon=False,
-               bbox_to_anchor=(0.5, -0.12), columnspacing=1.1,
+               bbox_to_anchor=(0.5, -0.24), columnspacing=1.1,
                handlelength=1.8)
 
     ax = axes[1]
