@@ -159,7 +159,7 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
     add_reference(ax, val, "random", "random")
     ax.set_xlabel("training size $N$")
     ax.set_ylabel(VALUE_LABEL[dataset])
-    ax.set_title("(a)  policy value on held-out data", loc="left", fontweight="bold")
+    ax.set_title("(a)  held-out policy value", loc="left", fontweight="bold")
 
     # (b) allocation vs capacity — the panel that decides feasibility
     ax = axes[1]
@@ -175,7 +175,7 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
                 fontsize=7, color="#c0392b", fontweight="bold", zorder=7,
                 path_effects=[pe.withStroke(linewidth=2.6, foreground="white")])
     ax.set_xlabel("training size $N$")
-    ax.set_ylabel("deployed mass on capped arm")
+    ax.set_ylabel("deployed share, capped arm")
     ax.set_title("(b)  is the policy feasible?", loc="left", fontweight="bold")
     # Scale to the drawn series only. treat-all sits at 1.0 on this panel and
     # is not plotted here, so including it would flatten every real curve
@@ -190,7 +190,7 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
     add_reference(ax, wait, "treat_all", "treat-all", logy=True)
     ax.set_xlabel("training size $N$")
     ax.set_ylabel("mean wait time (served)")
-    ax.set_title("(c)  queueing cost of deployment", loc="left", fontweight="bold")
+    ax.set_title("(c)  queueing cost", loc="left", fontweight="bold")
 
     # one legend for the row, below the panels
     handles = [Line2D([], [], color=STYLE[m]["color"], lw=STYLE[m]["lw"],
@@ -205,7 +205,7 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
                frameon=False, bbox_to_anchor=(0.5, -0.16), columnspacing=1.1,
                handlelength=1.8)
     # No suptitle: in the paper the caption names the dataset.
-    fig.tight_layout(w_pad=1.6)
+    fig.tight_layout(w_pad=3.0)
 
     os.makedirs(outdir, exist_ok=True)
     stem = os.path.join(outdir, f"fig_{dataset}")

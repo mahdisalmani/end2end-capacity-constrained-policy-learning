@@ -126,7 +126,7 @@ def main():
                handlelength=1.8)
 
     # No suptitle: the caption carries it in the paper.
-    fig.tight_layout(w_pad=1.6)
+    fig.tight_layout(w_pad=2.4)
     os.makedirs("figures", exist_ok=True)
     for ext in ("pdf", "png"):
         fig.savefig(f"figures/fig_mechanism.{ext}",

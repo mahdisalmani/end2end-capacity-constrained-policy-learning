@@ -19,7 +19,7 @@ Usage:
 
 import matplotlib
 
-FIG_WIDE_3 = (7.0, 2.15)    # three-panel figure*
+FIG_WIDE_3 = (7.4, 2.2)     # three-panel figure*
 FIG_WIDE_2 = (7.0, 2.3)    # two-panel figure* (index)
 FIG_COL = (3.35, 2.5)      # single-column figure
 
