@@ -34,48 +34,13 @@ import matplotlib.patheffects as pe
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# ---- house style ----------------------------------------------------------
-# One sans face throughout, hairline spines, no chartjunk. Sizes are chosen
-# for a ~3.4in-wide column reproduction (single column) without further
-# scaling, so text stays >= 7pt on the printed page.
-plt.rcParams.update({
-    "font.family": "sans-serif",
-    "font.sans-serif": ["DejaVu Sans", "Helvetica", "Arial"],
-    "font.size": 8.5,
-    "axes.labelsize": 8.5,
-    "axes.titlesize": 9,
-    "xtick.labelsize": 7.5,
-    "ytick.labelsize": 7.5,
-    "legend.fontsize": 7.5,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.linewidth": 0.7,
-    "xtick.major.width": 0.7,
-    "ytick.major.width": 0.7,
-    "xtick.direction": "out",
-    "ytick.direction": "out",
-    "lines.linewidth": 1.5,
-    "lines.markersize": 3.6,
-    "grid.linewidth": 0.5,
-    "grid.alpha": 0.35,
-    "figure.dpi": 150,
-    "savefig.bbox": "tight",
-    "savefig.pad_inches": 0.02,
-    "pdf.fonttype": 42,      # TrueType: editable/searchable text in the PDF
-    "ps.fonttype": 42,
-})
+# ---- house style: shared with every paper figure -------------------------
+from paper_style import FIG_WIDE_3, METHOD_STYLE, apply as _apply_style
+_apply_style()
 
-# Ours emphasised; baselines recede. Colours are the CVD-checked categorical
-# slots used throughout the project's reporting.
-STYLE = {
-    "F":         dict(color="#2a78d6", lw=1.9, marker="o", zorder=6, label="F (end-to-end, non-convex)"),
-    "Gs":        dict(color="#008300", lw=1.9, marker="s", zorder=6, label="G (end-to-end, convex)"),
-    "Alt":       dict(color="#e87ba4", lw=1.6, marker="^", zorder=5, label="Alt (dual refresh)"),
-    "S2-linear": dict(color="#eda100", lw=1.1, marker="v", zorder=3, alpha=0.9, label="S2-linear"),
-    "S2-tree":   dict(color="#eb6834", lw=1.1, marker="D", zorder=3, alpha=0.9, label="S2-tree"),
-    "S2-knn":    dict(color="#4a3aa7", lw=1.1, marker="P", zorder=3, alpha=0.9, label="S2-knn"),
-    "S2-mlp":    dict(color="#e34948", lw=1.1, marker="X", zorder=3, alpha=0.9, label="S2-mlp"),
-}
+STYLE = {k: dict(v) for k, v in METHOD_STYLE.items()
+         if k in ("F", "Gs", "Alt", "S2-linear", "S2-tree", "S2-knn", "S2-mlp")}
+
 ORDER = ["F", "Gs", "Alt", "S2-linear", "S2-tree", "S2-knn", "S2-mlp"]
 REFS = {"treat_all": "treat-all", "random": "random"}
 
@@ -182,7 +147,7 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
 
     xticks = sorted({int(n) for v in val.values() for n in v[0]})
 
-    fig, axes = plt.subplots(1, 3, figsize=(10.2, 2.85))
+    fig, axes = plt.subplots(1, 3, figsize=FIG_WIDE_3)
 
     # (a) policy value
     ax = axes[0]
@@ -234,9 +199,9 @@ def make_figure(dataset, csv, outdir, panel_c="wait"):
     handles.append(Patch(facecolor="#2a78d6", alpha=0.15, edgecolor="none",
                          label="95% CI (proposed methods; IQR in (c))"))
     fig.legend(handles=handles, loc="lower center", ncol=min(5, len(handles)),
-               frameon=False, bbox_to_anchor=(0.5, -0.13), columnspacing=1.4,
-               handlelength=2.0)
-    fig.suptitle(TITLE[dataset], y=1.03, fontsize=9.5, fontweight="bold")
+               frameon=False, bbox_to_anchor=(0.5, -0.16), columnspacing=1.1,
+               handlelength=1.8)
+    # No suptitle: in the paper the caption names the dataset.
     fig.tight_layout(w_pad=1.6)
 
     os.makedirs(outdir, exist_ok=True)

@@ -22,25 +22,20 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-plt.rcParams.update({
-    "font.family": "sans-serif", "font.size": 8.5, "axes.titlesize": 9,
-    "axes.spines.top": False, "axes.spines.right": False,
-    "figure.dpi": 150, "savefig.bbox": "tight", "pdf.fonttype": 42,
-})
+from paper_style import FIG_WIDE_2, METHOD_STYLE, apply as _apply_style
+_apply_style()
 
-STYLE = {
-    "F":         dict(color="#2a78d6", lw=2.0, label="F (end-to-end, non-convex)"),
-    "Gs":        dict(color="#008300", lw=2.0, label="G (end-to-end, convex)"),
-    "Alt":       dict(color="#e87ba4", lw=1.4, label="Alt (dual refresh)"),
-    "S2-linear": dict(color="#eda100", lw=1.1, label="S2-linear"),
-    "S2-lasso":  dict(color="#1baf7a", lw=1.1, label="S2-lasso"),
-    "S2-tree":   dict(color="#eb6834", lw=1.6, label="S2-tree"),
-    "S2-knn":    dict(color="#4a3aa7", lw=1.1, label="S2-knn"),
-    "S2-dr":     dict(color="#c8321e", lw=1.1, label="S2-dr"),
-}
+_KEEP = ("F", "Gs", "Alt", "S2-linear", "S2-lasso", "S2-tree", "S2-knn",
+         "S2-dr", "S2-mlp")
+STYLE = {}
+for _k in _KEEP:
+    _st = dict(METHOD_STYLE[_k])
+    _st.pop("marker", None)          # index panels are pure line charts
+    STYLE[_k] = _st
+
 DS_LABEL = {"nonnested": "non-\nnested", "adultsemi": "Adult\nsemi",
             "actg": "ACTG\n175", "diabetes": "Diabetes\n130",
-            "criteo": "Criteo", "lalonde": "LaLonde"}
+            "criteo": "Criteo", "lalonde": "\nLaLonde"}
 
 
 def main():
@@ -49,7 +44,7 @@ def main():
     KMAX = 0.05
     sel = K <= KMAX
 
-    fig, axes = plt.subplots(1, 2, figsize=(7.6, 2.9),
+    fig, axes = plt.subplots(1, 2, figsize=FIG_WIDE_2,
                              gridspec_kw={"width_ratios": [1.9, 1.0]})
 
     ax = axes[0]
@@ -57,18 +52,18 @@ def main():
         if m not in d["combined"]:
             continue
         v = np.array(d["combined"][m])
-        ax.plot(K[sel], v[sel], **st, zorder=5 if m in ("F", "Gs") else 3)
+        ax.plot(K[sel], v[sel], **st)
     lo = -1.6
     ax.set_ylim(lo, 1.05)
     deep = min(min(d["combined"][m]) for m in ("S2-lasso", "S2-tree")
                if m in d["combined"])
     ax.annotate(f"S2-lasso / S2-tree continue to {deep:+.1f}",
-                xy=(0.0415, lo + 0.06), ha="right", fontsize=6.6,
+                xy=(0.0415, lo + 0.06), ha="right", fontsize=7.5,
                 color="#8a6a5a")
     cross = d["combined_crossover"]
     if cross == 0.0:
         ax.annotate("end-to-end leads at every κ,\nincluding κ = 0 (delay-free)",
-                    xy=(0.0055, 0.99), fontsize=7, va="top",
+                    xy=(0.0055, 0.99), fontsize=8, va="top",
                     color="#444444")
     elif cross is not None:
         ax.axvline(cross, color="#666666", lw=0.9, ls=(0, (4, 3)))
@@ -82,8 +77,10 @@ def main():
     ax.set_title(f"(a)  DAPV(κ) averaged over all {n_ds} datasets",
                  loc="left", fontweight="bold")
     ax.grid(True, axis="y", alpha=0.3)
-    ax.legend(fontsize=6.3, frameon=False, ncol=1, loc="lower right",
-              bbox_to_anchor=(1.0, 0.02))
+    handles, lbls = ax.get_legend_handles_labels()
+    fig.legend(handles, lbls, loc="lower center", ncol=5, frameon=False,
+               bbox_to_anchor=(0.5, -0.12), columnspacing=1.1,
+               handlelength=1.8)
 
     ax = axes[1]
     ds_order = ["diabetes", "nonnested", "adultsemi", "actg", "criteo",
@@ -98,17 +95,17 @@ def main():
             ax.scatter([i], [NEVER_Y], marker="^", s=42, color="#a03a31", zorder=5)
             ax.annotate("never", xy=(i, NEVER_Y), xytext=(0, 6),
                         textcoords="offset points", ha="center",
-                        fontsize=6.6, color="#a03a31")
+                        fontsize=7.5, color="#a03a31")
             ys.append(np.nan)
         else:
             ax.plot([i, i], [0, c], color="#2a78d6", lw=1.6, zorder=3)
             ax.scatter([i], [c], s=42, color="#2a78d6", zorder=5)
             lbl = "0" if c == 0.0 else f"{c:.4f}"
             ax.annotate(lbl, xy=(i, c), xytext=(0, 6),
-                        textcoords="offset points", ha="center", fontsize=6.6,
+                        textcoords="offset points", ha="center", fontsize=7.5,
                         color="#1c4b7a")
             ys.append(c)
-    ax.set_xticks(range(len(ds_order)), labels, fontsize=6.2)
+    ax.set_xticks(range(len(ds_order)), labels, fontsize=7.5)
     ax.set_xlim(-0.55, len(ds_order) - 0.45)
     ax.tick_params(axis="x", pad=2)
     ax.set_ylim(0, 0.105)
@@ -117,9 +114,7 @@ def main():
                  loc="left", fontweight="bold")
     ax.grid(True, axis="y", alpha=0.3)
 
-    fig.suptitle("Deployment-Adjusted Policy Value: value, feasibility and delay "
-                 "in one number — with its only parameter on the axis",
-                 y=1.04, fontsize=9.3, fontweight="bold")
+    # No suptitle: the caption carries it in the paper.
     fig.tight_layout(w_pad=2.0)
     os.makedirs("figures", exist_ok=True)
     for ext in ("pdf", "png"):

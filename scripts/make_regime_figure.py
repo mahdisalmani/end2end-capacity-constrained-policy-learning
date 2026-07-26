@@ -22,11 +22,8 @@ from matplotlib.colors import TwoSlopeNorm
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-plt.rcParams.update({
-    "font.family": "sans-serif", "font.size": 8.5,
-    "axes.titlesize": 9, "figure.dpi": 150,
-    "savefig.bbox": "tight", "pdf.fonttype": 42,
-})
+from paper_style import apply as _apply_style
+_apply_style()
 
 S2 = ["S2-linear", "S2-lasso", "S2-tree"]
 
