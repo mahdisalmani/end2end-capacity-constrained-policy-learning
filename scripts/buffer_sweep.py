@@ -64,9 +64,13 @@ def main():
 
     rows = []
     for buf in BUFFERS:
+        B_e2e = np.asarray(B, dtype=float).copy()
+        B_e2e[1:] = B_e2e[1:] * buf          # buffer the scarce arms only:
+        # shrinking b_0 as well can push sum(b) below 1, making the dual
+        # LP genuinely unbounded on tight two-arm instances.
         for name, model in (("F", mF), ("G", mG)):
             arms_tr, arms_ev, asg = arms_and_assigner_from_model(
-                model, td, ev, B, buf)
+                model, td, ev, B_e2e, 1.0)
             r = simulate_one_method(asg, name, ev, T, B,
                                     sim_kwargs["N_sim"],
                                     sim_kwargs["lambda_people"],

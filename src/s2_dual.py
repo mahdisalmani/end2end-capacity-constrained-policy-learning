@@ -218,6 +218,11 @@ def solve_dual_lp(M_hat, b, verbose=False):
     solve_time = time.time() - t0
 
     if mu.value is None:
+        # Numerics fallback: the LP is bounded (the t=0 constraints pin z),
+        # but the default conic solver can misreport on large instances.
+        warnings.warn(f"LP status {problem.status}; retrying with HiGHS.")
+        problem.solve(solver=cp.SCIPY, verbose=verbose)
+    if mu.value is None:
         raise RuntimeError(f"LP did not return a solution. Status: {problem.status}")
 
     mu_hat = np.asarray(mu.value).reshape(-1)
