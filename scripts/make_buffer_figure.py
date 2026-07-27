@@ -30,7 +30,7 @@ for _st in STYLE.values():
     _st.pop("alpha", None)
 
 CAP = {"mechanism": 0.25, "actg": 0.30}
-VCOL = {"mechanism": "oracle_val", "actg": "ipw_val"}
+VCOL = {"mechanism": "mean_oracle_outcome_all", "actg": "ipw_val"}
 VLAB = {"mechanism": "deployed ground-truth value",
         "actg": "held-out IPW value"}
 DSLAB = {"mechanism": "mechanism", "actg": "ACTG 175"}
