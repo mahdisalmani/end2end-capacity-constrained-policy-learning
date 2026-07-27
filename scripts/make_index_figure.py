@@ -105,7 +105,8 @@ def main():
                         color="#1c4b7a")
             ys.append(c)
     if ctrl_ix:
-        ax.annotate("no gap (controls)", xy=(float(np.mean(ctrl_ix)), NEVER_Y),
+        _lbl = "no gap (control)" if len(ctrl_ix) == 1 else "no gap (controls)"
+        ax.annotate(_lbl, xy=(float(np.mean(ctrl_ix)), NEVER_Y),
                     xytext=(0, 8), textcoords="offset points", ha="center",
                     fontsize=7.5, color="#6a6a6a")
     ax.set_xticks(range(len(ds_order)), labels, fontsize=7.5)

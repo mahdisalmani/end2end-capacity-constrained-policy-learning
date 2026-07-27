@@ -42,7 +42,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-DATASETS = ["adultsemi", "actg", "diabetes", "criteo", "lalonde", "nonnested"]
+DATASETS = ["adultsemi", "actg", "diabetes", "criteo", "nonnested"]
 ORACLE = {"adultsemi", "nonnested"}     # ground-truth deployed value exists
 METHODS = ["F", "Gs", "Alt", "S2-linear", "S2-lasso", "S2-tree", "S2-knn",
            "S2-dr", "S2-mlp", "random", "treat_all"]
