@@ -87,6 +87,7 @@ def train_GF(
     lr=5e-3,
     log_every=20,
     seed=0,
+    outer="ipw",
 ):
     torch.manual_seed(seed)
 
@@ -107,7 +108,12 @@ def train_GF(
         mu_star = mu_layer(M)
         pi = softmax_policy(M, mu_star, tau)
 
-        V = ipw_value(pi, T_t, Y_t, e_T_t)
+        if outer == "snips":
+            # self-normalised IPW: same estimand, weights renormalised
+            w_pi = pi[torch.arange(N_local), T_t] / e_T_t
+            V = (w_pi * Y_t).sum() / w_pi.sum().clamp_min(1e-12)
+        else:
+            V = ipw_value(pi, T_t, Y_t, e_T_t)
         loss = -V
 
         assert torch.allclose(
