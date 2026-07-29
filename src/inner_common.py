@@ -9,7 +9,8 @@ G in `inner_G.py`) are minimized over mu >= 0 the same way:
   backward: implicit-function theorem on the KKT system of
             argmin_{mu >= 0} obj(mu; M), with the active set {t : mu_t = 0}
             handled by augmenting the Hessian with multiplier rows/columns
-            (the saddle-point system of Final Report, Appendix B).
+            (Sec. 3.2 of the paper; the augmented KKT system is derived in
+            the technical appendix's implicit-function section).
 
 This module holds the single implementation of both passes; `inner_F` and
 `inner_G` supply only their objective functions and warm-start caches.

@@ -7,6 +7,8 @@ metrics and returns the same result-row schema, built by `score_policy_pair`:
     V_DR_eval                : doubly-robust value on eval (shared m_hat)
     V_oracle                 : counterfactual value on eval (synthetic only)
     alloc / cap_viol_sup / cap_ok : realized eval allocation vs capacities b
+
+Metric conventions follow Sec. 5.1 of the paper.
 """
 
 import numpy as np

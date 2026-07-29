@@ -2,8 +2,9 @@
 combines policy value, feasibility and queueing delay WITHOUT arbitrary
 weights.
 
-Construction. A policy is scored by what it actually delivers under the
-deployment queue:
+Construction — Eq. (9) and Sec. 3.5 of the paper; the sweep-and-crossover
+protocol is Sec. 5.4. A policy is scored by what it actually delivers under
+the deployment queue:
 
     DAPV(kappa) = V_dep - kappa * W
 

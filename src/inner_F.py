@@ -3,14 +3,17 @@ Inner layer for the literal non-convex F(mu).
 
     F(mu) = (1/N) sum_i sum_t sigma_{t,i}(mu) * (m_{t,i} - mu_t) + b . mu
 
-where sigma_i(mu) = softmax((M_i - mu) / tau). Non-convex in mu because the
-softmax weights depend on mu. Forward/backward are the shared L-BFGS-B +
-implicit-function-theorem machinery in `inner_common`.
+where sigma_i(mu) = softmax((M_i - mu) / tau). This is Eq. (5) of the paper
+(Sec. 3.1). Non-convex in mu because the softmax weights depend on mu.
+Forward/backward are the shared L-BFGS-B + implicit-function-theorem
+machinery in `inner_common` (Sec. 3.2 of the paper).
 
 Note: unlike G (see `inner_G`), the stationary point of F does NOT satisfy
 exact complementary slackness for the capacity constraints — at finite tau
 the induced allocation mean_i sigma_{t,i} can differ from b_t on arms with
-mu_t > 0 (it approaches b_t only as tau -> 0).
+mu_t > 0 (it approaches b_t only as tau -> 0). This is exactly the gap
+Proposition 2 of the paper rules out for G (Sec. 3.3): G's stationarity
+pins binding arms at capacity, F's does not.
 """
 
 import torch

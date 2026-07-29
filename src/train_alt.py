@@ -1,5 +1,6 @@
 """
-Alternating block-coordinate training for the capacity-constrained policy.
+Alternating block-coordinate training for the capacity-constrained policy:
+the alternating variant Alt of Sec. 3.1 of the paper.
 
 Targets the same Lagrangian as F (`src/inner_F.py`), but instead of
 backpropagating through the inner argmin via the implicit function theorem,

@@ -1,4 +1,5 @@
-"""Score model m_{t, theta}(x): shared trunk with a T-dim head."""
+"""Score model m_{t, theta}(x): shared trunk with a T-dim head (Sec. 3.1 of
+the paper — one representation shared across all treatments)."""
 
 import torch
 from torch import nn

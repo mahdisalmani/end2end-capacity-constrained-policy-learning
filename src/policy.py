@@ -1,16 +1,24 @@
-"""Softmax policy + IPW / DR / oracle value functionals."""
+"""Softmax policy + IPW / DR / oracle value functionals.
+
+Implements the price-adjusted softmax policy, Eq. (3) of the paper, and the
+IPW outer objective, Eq. (4); the DR and oracle functionals are the
+evaluation metrics of Sec. 5.1.
+"""
 
 import numpy as np
 import torch
 
 
 def softmax_policy(M, mu, tau):
-    """pi_{t,i}(x) = softmax_t((m_{t,i} - mu_t) / tau)."""
+    """pi_{t,i}(x) = softmax_t((m_{t,i} - mu_t) / tau) — Eq. (3) of the paper."""
     return torch.softmax((M - mu.unsqueeze(0)) / tau, dim=1)
 
 
 def ipw_value(pi, T_obs, Y, e_T):
-    """V_IPW(theta) = (1/N) sum_i pi_{T_i,i} * Y_i / e_{T_i}(X_i)."""
+    """V_IPW(theta) = (1/N) sum_i pi_{T_i,i} * Y_i / e_{T_i}(X_i).
+
+    Eq. (4) of the paper: the outer objective both bilevel pipelines maximise.
+    """
     pi_t = pi.gather(1, T_obs.unsqueeze(1)).squeeze(1)
     return (pi_t * Y / e_T).mean()
 
@@ -23,7 +31,8 @@ def ipw_value_np(pi, T_obs, Y, e_T):
 
 def dr_value_np(pi, T_obs, Y, e_T, m_hat):
     """
-    Doubly-robust / AIPW estimator of V(pi).
+    Doubly-robust / AIPW estimator of V(pi): the V_DR evaluation metric of
+    Sec. 5.1 of the paper.
 
         V_DR = mean_i sum_t pi_{t,i} * m_hat_{t,i}                     (direct)
              + mean_i pi_{T_i,i} / e_{T_i}(X_i) * (Y_i - m_hat_{T_i,i})  (residual IPW)
@@ -40,7 +49,9 @@ def dr_value_np(pi, T_obs, Y, e_T, m_hat):
 
 
 def oracle_value(pi_np, Y_pot_np):
-    """Oracle value of a policy given counterfactual outcomes.
+    """Oracle value of a policy given counterfactual outcomes — the
+    ground-truth deployed/eval metric of Sec. 5.1 of the paper (synthetic
+    and semi-synthetic suites).
 
     Works for soft policies (rows on the simplex) and one-hot policies alike:
     V = mean_i sum_t pi_{t,i} * Y^t_i.

@@ -71,7 +71,8 @@ def arms_and_assigner_from_model(model, train_data, eval_data, B, cap_buffer):
     Deterministic deployment used by every sweep/cell harness: re-solve the
     dual LP on the model's M(X_train) with cap vector `cap_buffer * B`
     (default 0.92 -> sub-cap), then deploy `argmax(M - mu_calibrated)` on
-    both splits. Calibration uses train data only — no peek at eval.
+    both splits. Calibration uses train data only — no peek at eval. This
+    is the buffered deployment LP of Sec. 3.4 of the paper.
     """
     B_arr = np.asarray(B, dtype=float)
     B_shrunk = cap_buffer * B_arr
@@ -117,7 +118,8 @@ def s2_arms_and_assigner(train_data, eval_data, T, B, method, mlp_steps=500):
 
 # === Arrival streams =========================================================
 # One paired stream per sim_seed, shared across all methods so the method
-# delta is not contaminated by Poisson noise.
+# delta is not contaminated by Poisson noise (the paired-deployment
+# protocol of Sec. 5.1 of the paper).
 
 def make_streams(eval_data, N_sim, lambda_people, B, max_time_mult, seed):
     rng = np.random.default_rng(seed)
@@ -152,7 +154,11 @@ def make_streams(eval_data, N_sim, lambda_people, B, max_time_mult, seed):
 
 def simulate(people_t, person_idx, resource_t, assigner, T, T_max,
              eval_data, sim_seed):
-    """One queueing simulation. Returns dict of per-person arrays of length N_sim."""
+    """One queueing simulation — the per-treatment queueing system of
+    Sec. 3.4 of the paper (schematic in the technical appendix): arrivals
+    join their assigned arm's queue and are served as that arm's units
+    replenish at rate B_t * lambda. Returns dict of per-person arrays of
+    length N_sim."""
     Y_pot = eval_data["Y_pot"]
     rng = np.random.default_rng(sim_seed * 9_973_337 + 1)
     N_sim = len(people_t)

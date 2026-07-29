@@ -1,10 +1,14 @@
 """
-S2: sample-based dual-price method.
+S2: sample-based dual-price method — the predict-then-optimize (PtO)
+reference pipeline of the paper (rows tagged S2-* here are reported as
+PtO-* there).
 
 Fit per-treatment outcome models m_hat_t(x), then solve the sample-based
-dual LP for shadow prices mu_hat, then deploy a deterministic policy
+dual LP — Eq. (2) of the paper — for shadow prices mu_hat, then deploy a
+deterministic price-adjusted policy
     a(x) = argmax_t [m_hat_t(x) - mu_hat_t]
-on the eval split.
+on the eval split. Decision-blind in the paper's sense: the outcome models
+are fit before, and independently of, the pricing step.
 """
 
 import time
@@ -191,7 +195,7 @@ def get_mhat_matrix(models, X, T):
 
 def solve_dual_lp(M_hat, b, verbose=False):
     """
-    Sample-based dual LP:
+    Sample-based dual LP — the sample-average form of Eq. (2) of the paper:
 
         min_{mu >= 0, z}  (1/N) sum_i z_i + b^T mu
         s.t.              z_i >= M_hat[i, t] - mu_t   for all i, t
@@ -232,7 +236,8 @@ def solve_dual_lp(M_hat, b, verbose=False):
 
 
 def recover_policy(M_hat, mu_hat):
-    """Deterministic policy a(x) = argmax_t [M_hat[i, t] - mu_hat_t]."""
+    """Deterministic policy a(x) = argmax_t [M_hat[i, t] - mu_hat_t] — the
+    price-adjusted argmax deployment of Sec. 2 of the paper."""
     adjusted = M_hat - mu_hat[None, :]
     assignments = adjusted.argmax(axis=1)
 

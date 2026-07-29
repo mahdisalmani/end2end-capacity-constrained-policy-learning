@@ -1,4 +1,11 @@
-"""Training loop for the G/F bilevel pipelines."""
+"""Training loop for the G/F bilevel pipelines.
+
+Implements the bilevel program Eq. (6) of the paper (Sec. 3.1): maximise
+the IPW value Eq. (4) — or its SNIPS variant, the outer-objective ablation
+of the technical appendix — over theta, with mu*(theta) solving the inner
+problem Eq. (5) (F) or Eq. (7) (G) and gradients through mu* given by the
+implicit-function theorem (Sec. 3.2).
+"""
 
 import time
 
@@ -109,7 +116,8 @@ def train_GF(
         pi = softmax_policy(M, mu_star, tau)
 
         if outer == "snips":
-            # self-normalised IPW: same estimand, weights renormalised
+            # self-normalised IPW (SNIPS): same estimand, renormalised
+            # weights — the outer-objective ablation of the technical appendix
             w_pi = pi[torch.arange(N_local), T_t] / e_T_t
             V = (w_pi * Y_t).sum() / w_pi.sum().clamp_min(1e-12)
         else:

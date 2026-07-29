@@ -3,9 +3,10 @@ Inner layer for the convex Lagrangian dual G(mu).
 
     G(mu) = (tau / N) * sum_i log sum_t exp((m_{t,i} - mu_t) / tau) + b . mu
 
-G is the entropy-smoothed dual of the capacity-constrained allocation LP and
-relates to F (see `inner_F`) by G(mu) = F(mu) + (tau/N) sum_i H(sigma_i(mu)),
-so F <= G <= F + tau*log(T).
+G is the entropy-smoothed dual of the capacity-constrained allocation LP —
+Eq. (7) of the paper (Sec. 3.3) — and relates to F (see `inner_F`) by
+G(mu) = F(mu) + (tau/N) sum_i H(sigma_i(mu)), so F <= G <= F + tau*log(T):
+Proposition 1 / Eq. (8) of the paper, proved in the technical appendix.
 
 Two gradient paths are provided:
   - "G"  : CVXPYLayer (diffcp implicit differentiation). Exact but slow, and
@@ -15,7 +16,9 @@ Two gradient paths are provided:
 
 Because G's stationarity condition is  b_t = mean_i sigma_{t,i}  on inactive
 coordinates, the allocation induced by mu*_G is feasible-in-expectation by
-construction: binding arms sit exactly at capacity.
+construction: binding arms sit exactly at capacity. This is Proposition 2
+of the paper; the extended statement (uniqueness, population version) is in
+the technical appendix.
 """
 
 import numpy as np
