@@ -1,20 +1,61 @@
-# End-to-End Policy Optimization for Capacity-Constrained Resource Allocation
+<h1 align="center">Differentiating Through Dual Prices</h1>
 
-Learn treatment-allocation policies from observational data when each
-treatment arm has a long-run capacity budget. Instead of the classic
-two-stage pipeline (fit outcome models, then price capacities with an LP),
-the outcome model here is trained **end-to-end** against an
-inverse-propensity-weighted (IPW) estimate of policy value, with the dual
-capacity prices re-solved at every training step as an implicit function of
-the model — a bilevel program. Companion code for the ISE 619 report
-*"End-to-End Policy Optimization for Capacity-Constrained Resource
-Allocation"* (see `papers/`).
+<p align="center"><i>Train the outcome model through the capacity prices it induces, so the deployed policy and the trained policy are the same object — then measure what that buys when allocations meet a live queue</i></p>
 
-## Problem
+<p align="center">
+<img src="https://img.shields.io/badge/python-3.11-blue?logo=python&logoColor=white" alt="Python">
+<img src="https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch">
+<img src="https://img.shields.io/badge/CVXPY-diffcp-1f6feb" alt="CVXPY">
+<img src="https://img.shields.io/badge/Bilevel-implicit_differentiation-6f42c1" alt="Implicit differentiation">
+<img src="https://img.shields.io/badge/Methods-F,_G,_Alt-0aa" alt="Methods">
+<img src="https://img.shields.io/badge/Baselines-PtO_x6-0aa" alt="Baselines">
+<img src="https://img.shields.io/badge/Datasets-6-0aa" alt="Datasets">
+<img src="https://img.shields.io/badge/tests-16_passing-brightgreen" alt="Tests">
+<img src="https://img.shields.io/badge/SLURM-HPC-orange?logo=linux&logoColor=white" alt="SLURM">
+</p>
 
-Given a log $(X_i, T_i, Y_i, \hat e_{T_i}(X_i))_{i=1}^N$ over $|\mathcal T|$
-treatments with capacities $b_t$ (fraction of the population arm $t$ can
-absorb; control unconstrained), maximize the IPW policy value
+<p align="center"><sub>Code for the AAAI-27 submission <i>Differentiating Through Dual Prices: End-to-End Policy Learning Under Capacity Constraints</i>.</sub></p>
+
+---
+
+<h2 align="center">The Question</h2>
+
+A clinic, a benefits office, a housing program: each learns from logged data who should get which
+treatment, and each treatment arm has a capacity. The standard pipeline is decision-blind — fit
+outcome models per arm, price the capacities with a linear program afterwards, deploy the
+price-adjusted argmax. Nothing in that pipeline links what the models learn to what the prices
+need, and the constraint is met on paper by a pricing step the models never saw.
+
+This repository trains the model **through** the prices instead: the shadow prices are re-solved
+at every gradient step as an implicit function of the model, and the policy value gradient flows
+through that solve. Three questions, one experiment suite for each.
+
+| | Question | Answer |
+|---|---|---|
+| **1. Value** | Does building feasibility into training cost outcome value? | No. Values tie across the suite, and at 48,981 patients end-to-end wins outright (+0.045, t = 9.2) |
+| **2. Feasibility** | Is what the LP promises what the queue delivers? | Only for the price-trained policies. Decision-blind baselines deploy at or above cap and pay for it in waiting time |
+| **3. Substitutes** | Can a deployment knob — a tighter buffer, a variance fix, no constraints at all — buy the same thing? | No. Each substitute is run and fails for its own measured reason |
+
+---
+
+<h2 align="center">Headline Results</h2>
+
+<div align="center">
+
+| Raw-value win | Median waits | Index crossover |
+|:---:|:---:|:---:|
+| **+0.045** (t = 9.2) | **4–12 vs 14–25** | **κ = 0** |
+| F over the best decision-blind pipeline on Diabetes 130-US, 48,981 patients, 10 seeds | waiting periods, end-to-end vs decision-blind on the ACTG 175 trial — where raw values tie | F leads the deployment-adjusted index at every delay aversion (0.72 vs 0.56 for the best decision-blind method at κ = 0) |
+
+</div>
+
+---
+
+<h2 align="center">The Method</h2>
+
+Given a log $(X_i, T_i, Y_i, \hat e_{T_i}(X_i))_{i=1}^N$ over $|\mathcal T|$ treatments with
+capacities $b_t$ (fraction of the population arm $t$ can absorb; control unconstrained), maximize
+the IPW policy value
 
 $$\hat V_{\mathrm{IPW}}(\theta) = \frac{1}{N}\sum_{i=1}^N \pi_{\theta,T_i}(X_i)\,\frac{Y_i}{\hat e_{T_i}(X_i)}$$
 
@@ -22,150 +63,215 @@ over the softmax dual-price policy class
 
 $$\pi_{\theta,t}(x) = \mathrm{softmax}_t\big((m_{t,\theta}(x)-\mu_{\theta,t})/\tau\big),$$
 
-where the shadow prices $\mu_\theta \ge 0$ solve an inner
-capacity-pricing problem for the current scores $M_\theta = (m_{t,\theta}(X_i))_{i,t}$.
-
-## Methods
+where the shadow prices $\mu_\theta \ge 0$ solve an inner capacity-pricing problem for the current
+scores — a bilevel program, differentiated through the inner argmin.
 
 | Name | Inner objective | Gradient path | Where |
 |------|-----------------|---------------|-------|
-| **F**   | $F(\mu)=\frac1N\sum_i \sigma_i(\mu)^\top(M_i-\mu) + b^\top\mu$ (non-convex, literal softmax Lagrangian) | scipy L-BFGS-B forward, implicit-function-theorem backward on the KKT system | `src/inner_F.py` |
-| **G**   | $G(\mu)=\frac\tau N\sum_i \log\sum_t e^{(M_{it}-\mu_t)/\tau} + b^\top\mu$ (convex log-sum-exp dual) | CVXPYLayer (diffcp) | `src/inner_G.py` |
-| **Gs**  | same $G$ | scipy L-BFGS-B + IFT (no cvxpy in the loop, any $N$) | `src/inner_G.py` |
-| **Alt** | same as F | block-coordinate: $\mu$ refreshed every `inner_freq` steps, treated as a constant (no IFT) — the dual-refresh idea of Rodriguez-Diaz et al., arXiv:2511.04909 | `src/train_alt.py` |
-| **S2-*** | two-stage baseline (Tang et al. 2024): fit $\hat m_t$ per arm (OLS / lasso / tree / kNN / DR / MLP), solve the sample dual LP for $\hat\mu$, deploy $\arg\max_t \hat m_t(x)-\hat\mu_t$ | none | `src/s2_dual.py` |
+| **F** | $F(\mu)=\frac1N\sum_i \sigma_i(\mu)^\top(M_i-\mu) + b^\top\mu$ — the literal softmax Lagrangian, non-convex | L-BFGS-B forward, implicit-function theorem backward on the KKT system | `src/inner_F.py` |
+| **G** | $G(\mu)=\frac\tau N\sum_i \log\sum_t e^{(M_{it}-\mu_t)/\tau} + b^\top\mu$ — convex log-sum-exp dual | CVXPYLayer (diffcp), or the same L-BFGS-B + IFT path (`Gs`, no cvxpy in the loop) | `src/inner_G.py` |
+| **Alt** | same as F | block-coordinate: $\mu$ refreshed every few steps and treated as a constant — no implicit gradient | `src/train_alt.py` |
+| **PtO-\*** | decision-blind reference: fit $\hat m_t$ per arm (OLS / lasso / tree / kNN / DR / MLP), solve the sample dual LP, deploy $\arg\max_t \hat m_t(x)-\hat\mu_t$ | none | `src/s2_dual.py` |
 
-The two inner objectives satisfy $F \le G \le F + \tau\log|\mathcal T|$
-(they differ by the policy entropy, $G-F = \frac{\tau}{N}\sum_i H(\sigma_i)$)
-and coincide as $\tau \to 0$ with the hard LP dual. A property worth knowing
-(verified in `tests/test_inner_layers.py`): **G's** stationarity is
-$b_t = \frac1N\sum_i \pi_{t,i}$ on binding arms, so its inner optimum is
-feasible-in-expectation *exactly*; **F's** stationary point can exceed caps
-at finite $\tau$. Deployment therefore either uses a queueing repair layer
-or re-prices with a sub-capacity buffer (see below).
+The two inner objectives satisfy $F \le G \le F + \tau\log|\mathcal T|$ — they differ by exactly
+the policy entropy — and both collapse to the hard LP dual as $\tau \to 0$. The property that
+matters: **G**'s stationarity condition is $b_t = \frac1N\sum_i \pi_{t,i}$ on binding arms, so its
+inner optimum is feasible-in-expectation *exactly*, by construction, with no capacity penalty in
+the outer objective. F's stationary point can exceed caps at finite $\tau$ (measured: 1.1% at
+$\tau=0.01$ up to 28.2% at $\tau=1$), which is why deployment re-prices through a sub-capacity
+buffered LP and everything is scored inside a discrete-event queueing simulation. All of it is
+unit-tested against finite differences (`tests/`). Result CSVs use the legacy `S2-*` tags for the
+PtO baselines.
 
-## Repository layout
+---
+
+<h2 align="center">1. Ground Truth: What Each Pipeline Wins</h2>
+
+On the Adult semi-synthetic suite (real census covariates, eight arms, oracle-scored deployment)
+the deployment panels separate immediately: the end-to-end methods hold their deployed shares
+under the 0.08 caps and clear their queues in 12–16 periods, while the decision-blind value
+leaders sit at or above cap and queue 31–56. Raw deployed value, however, belongs to flexible
+regression — the capacity-matched PtO-mlp leads 1.49 vs 1.30 at N = 16,000 — and a 175-cell grid
+over tightness, nonlinearity and noise confirms that ranking is no artefact. Our pre-specified
+hypothesis that a favourable regime existed was **refuted**, and is reported as found.
+
+<p align="center">
+<img src="figures/fig_adultsemi.png" alt="Adult semi-synthetic: value, share, and wait versus N" width="85%">
+<br><sub>Adult semi-synthetic (8 arms, caps 0.08): deployed value, deployed share against cap, and median wait vs training size. 10 seeds, 95% bands.</sub>
+</p>
+
+The mechanism dataset shows *why* the pipelines separate, with every failure structural rather
+than tuned: a smooth effect driven by a single dense severity direction, positive for 30% of the
+population, capped at 25%. The linear family has exactly zero covariance with the effect and
+prices the arm out entirely (deployed share 0.000); depth-5 trees cannot express the dense
+direction and treat half-blind (value 0.024 vs oracle 0.203); kNN attenuates the margin
+(0.060, paired t = 6.9 against F); and the capacity-matched MLP comes closest on value
+(0.078 vs F's 0.088) but its margin noise deploys 0.263 against the 0.25 cap — a 12.0-period
+median wait against ≤ 0.28 for end-to-end, a 57× gap that survives the buffered LP.
+
+<p align="center">
+<img src="figures/fig_mechanism.png" alt="Mechanism dataset: value-versus-wait frontier" width="85%">
+<br><sub>No baseline reaches the end-to-end corner on both axes at once: every feasible decision-blind method concedes value, and the one competitive on value concedes feasibility.</sub>
+</p>
+
+---
+
+<h2 align="center">2. A Real Trial: Values Tie, Deployment Separates</h2>
+
+ACTG 175 randomised 2,139 HIV-positive patients across four antiretroviral arms — known
+propensities, clean identification, and a capacity question that is real: cap the
+combination-therapy arms at 0.30. On IPW value every learned method ties within noise
+(3.90–4.04 at full N). On deployment they do not: every decision-blind baseline deploys the
+capped arms at 0.30–0.32, at or above cap, while the end-to-end methods hold 0.24–0.28. The
+queue turns that gap into 14–25 waiting periods against 4–12.
+
+<p align="center">
+<img src="figures/fig_actg.png" alt="ACTG 175: value, share, and wait" width="85%">
+<br><sub>With estimation error removed as a confound by randomisation, what end-to-end training buys is a deployed allocation that respects the constraint it was trained under.</sub>
+</p>
+
+---
+
+<h2 align="center">3. Scale, and One Number</h2>
+
+The Diabetes 130-US cohort (69,973 patients after preprocessing, three HbA1c-testing arms,
+observational) is where raw value finally separates. At N = 48,981, training against the prices
+wins held-out IPW value outright: F 0.989 and Alt 0.991 against 0.944 for the best decision-blind
+method — paired per-seed +0.045 (t = 9.2) and +0.047 (t = 5.7), and +0.051 (t = 9.4) against the
+capacity-matched MLP control with the identical trunk, width, steps and learning rate. F and Alt
+are statistically indistinguishable from each other (t = 0.5); the implicit gradient's edge shows
+on the ground-truth grids (F beats Alt in 24 of 25 regime cells), not here.
+
+The deployment-adjusted policy value (DAPV) index folds value, feasibility and delay into one
+number with one swept parameter — the cost κ of one waiting period — with feasibility needing no
+weight at all: an infeasible policy mechanically loses value through unserved arrivals and queue
+spill-over.
+
+<p align="center">
+<img src="figures/fig_index.png" alt="DAPV index versus kappa" width="80%">
+<br><sub>Pooled over five datasets, normalised so random = 0 and the best method at κ = 0 equals 1. F leads at every κ — the crossover is at κ = 0 — with 0.72 vs 0.56 for the best decision-blind method before delay is priced at all.</sub>
+</p>
+
+---
+
+<h2 align="center">What Held Up and What Did Not</h2>
+
+Every claim was given an experiment built to falsify it. Three knobs that could have explained
+the results away were run at deployment scale.
+
+<p align="center">
+<img src="figures/fig_buffer.png" alt="Buffer sweep" width="85%">
+<br><sub>Sweeping the deployment buffer over [0.70, 1.00] with nothing retrained. For end-to-end the knob never engages; for the decision-blind MLP it restores feasibility but the value stays pinned below end-to-end at every buffer — truncating at a noisy margin changes how many are served, not who is ranked in.</sub>
+</p>
+
+<div align="center">
+
+| Claim | Verdict | Evidence |
+|---|:---:|---|
+| Feasibility can be trained in without a capacity penalty | ✅ | G's inner optimum is feasible-in-expectation exactly; binding arms sit at cap (proof + `tests/`) |
+| Training through the prices costs value | ❌ | Ties on ACTG and Criteo; wins +0.045 (t = 9.2) at Diabetes scale |
+| Decision-blind accuracy converts into deployable allocations | ❌ | At/above cap on every suite; 31–56 period queues on Adult, 15–33 on Diabetes |
+| A favourable regime exists where end-to-end wins raw value at small N | ❌ | Pre-specified hypothesis refuted on a 175-cell grid; reported as found |
+| The implicit gradient is worth it over dual refreshes (Alt) | ⚠️ | 24 of 25 regime cells at small N, yes; at 48,981 patients the shortcut ties (t = 0.5) |
+| A tighter deployment buffer substitutes for decision-aware training | ❌ | Value pinned 0.076–0.079 vs 0.088 at every buffer in [0.70, 1.00] |
+| SNIPS fixes the IPW variance for free | ❌ | −0.059 (t = −2.4) and −0.075 (t = −10.7) ground-truth/held-out value at deployment scale |
+| Constraints can be left to the queue (unconstrained IPW) | ❌ | Deployed mass exceeds total scarce capacity on 5 of 6 datasets; 43–86% of arrivals never served on the ground-truth suites |
+| F is feasible on its own at finite τ | ⚠️ | Capacity excess grows 1.1% → 28.2% over τ ∈ [0.01, 1]; the buffered LP and queue absorb it |
+
+</div>
+
+---
+
+<h2 align="center">Project Structure</h2>
 
 ```
-src/                      core library
-  config.py               experiment constants (N, T=10, D=30, tau, B)
-  data.py                 nested synthetic DGP (copula covariates, monotone arms)
-  models.py               MLPScore: shared trunk + T-dim head
-  policy.py               softmax policy, IPW / DR / oracle value estimators
+src/
+  models.py               MLPScore: shared trunk, one score per treatment
+  policy.py               softmax policy, IPW / DR / oracle value
+  inner_F.py, inner_G.py  the two inner pricing objectives
   inner_common.py         shared L-BFGS-B forward + IFT backward (KKT, active set)
-  inner_F.py / inner_G.py the two inner objectives (G also has the CVXPYLayer)
-  train.py / train_alt.py bilevel (F/G/Gs) and alternating training loops
-  s2_dual.py              two-stage baselines: outcome fits + dual LP + argmax
-  evaluation.py           score_policy_pair + method evaluators
-  baselines.py            random / oracle-greedy reference policies
-  comparison.py           final comparison table
-
-generate_data.py          snapshot train/eval .npz from src.config
-main.py                   run all methods on the snapshot -> comparison CSV
-
+  train.py, train_alt.py  bilevel (F/G) and alternating training loops
+  s2_dual.py              PtO baselines: per-arm fits + dual LP + argmax
 experiments/
-  common.py               shared harness: assigners, queue simulator, IPW, subsampling
-  cell_core.py            generic (N, seed) cell: full method suite + queue sim
-  sweep_core.py           generic multiprocessing (N x seed) sweep driver
-  run_cell_{synth,criteo,lalonde,nonnested}.py   dataset bindings (thin)
-  sweep_{synth,criteo,lalonde,nonnested}.py      sweep CLIs (thin)
-  n_sweep_criteo.py / n_sweep_lalonde.py         single-process N-sweeps + plots
-  real_queue_experiment.py                       snapshot queue experiment
-                                                 (softmax-sampling deployment)
-  data_criteo.py / data_lalonde.py / data_nonnested.py   dataset loaders / DGP
-  add_s2_mlp_*.py, reeval_nonnested_oracle.py, plot_*.py post-hoc add-ons
-  legacy/                 superseded first-generation pipeline (see headers)
-
+  common.py               assigners, the discrete-event queue, paired streams
+  cell_core.py            one (N, seed) cell: full method suite + queue sim
+  data_*.py               loaders: Adult semi-synth, ACTG 175, Criteo,
+                          Diabetes 130-US, mechanism + non-nested synthetics
+  run_cell_*.py           one thin runner per dataset
 scripts/
-  tau_study.py            temperature study: how tau trades policy sharpness
-                          against capacity feasibility, for F vs G
-  scaling_study.py        wall-clock per training step vs |T| for G/Gs/F/Alt
-
-tests/                    numerical checks (IFT vs finite differences, F–G
-                          identity, complementary slackness, LP = tau->0 limit,
-                          queue conservation, training smoke)
-legacy/ipw_policy.py      original T=3 prototype the repo grew out of
-papers/                   reference paper (arXiv:2511.04909) + project reports
-docs/dgp.tex              LaTeX description of the non-nested DGP
-docs/report.html          single tabbed project report — code review, corrections,
-                          and three large interactive plots (open in a browser)
+  slurm_sweep.sh          one SLURM array task per (N, seed) cell
+  deploy_index.py         the DAPV index: value, feasibility, delay, one κ sweep
+  buffer_sweep.py, snips_run.py, tau_study.py, regime_map.py   the ablations
+  make_*_figure.py        every paper figure, shared style in paper_style.py
+tests/                    implicit gradients vs finite differences, F–G identity,
+                          complementary slackness, queue conservation
 ```
 
-## Install & run
+One path end to end: a cell loads a dataset, trains every method on identical data, deploys each
+through the same buffered LP, and pushes all of them through paired queueing streams — same seed,
+same arrivals, same replenishments — so method deltas are never Poisson noise. Cells are
+independent, cached and resumable, which is what lets a sweep map onto a SLURM array and scale
+past one node.
+
+<details>
+<summary><b>Install and run</b></summary>
 
 ```bash
 pip install -r requirements.txt
 
-# sanity checks (no data needed, ~1 min)
-python -m tests.test_inner_layers
-python -m tests.test_policy_and_pipeline
+# numerical sanity checks (~1 min, no data needed)
+python -m pytest tests/ -q
 
-# snapshot pipeline: generate data, run every method, print comparison table
-python generate_data.py
-python main.py
+# snapshot pipeline: generate synthetic data, run every method, print the table
+python generate_data.py && python main.py
 
-# queue-deployment experiment on the snapshot
-python -m experiments.real_queue_experiment --N-sim 2000 --num-sim-seeds 3
+# real-data cells (loaders download on first use)
+python -m experiments.run_cell_actg     --N 1497  --seed 0
+python -m experiments.run_cell_diabetes --N 48000 --seed 0
 
-# multi-seed sweeps (results/ CSVs + plots)
-python -m experiments.sweep_synth     --seeds 20 --workers 20
-python -m experiments.sweep_nonnested --seeds 20 --workers 20 --steps 1500
-python -m experiments.sweep_lalonde   --seeds 20 --workers 20   # downloads NBER files
-python -m experiments.sweep_criteo    --seeds 20 --workers 20   # downloads Criteo (~300MB)
-
-# standalone studies (write results/tau_study.json, results/scaling.json)
-python scripts/tau_study.py
-python scripts/scaling_study.py
-
-# UCI-based experiments (download via the UCI API / ucimlrepo)
+# full sweeps on SLURM (one array task per cell; resumable, cached)
 scripts/slurm_sweep.sh adultsemi "500 1000 2000 4000 8000 16000" 10 --steps 800
-scripts/slurm_sweep.sh actg "250 500 750 1000 1497" 10 --steps 500
-scripts/slurm_regime.sh          # tightness x nonlinearity map
-python scripts/make_regime_figure.py
+scripts/slurm_sweep.sh actg      "250 500 750 1000 1497" 10 --steps 500
+
+# ablations and the index
+python scripts/buffer_sweep.py && python scripts/make_buffer_figure.py
+python scripts/deploy_index.py && python scripts/make_index_figure.py
 ```
 
-`experiments/data_adult_semi.py` builds a semi-synthetic 8-arm allocation
-problem on real Adult-census covariates (oracle-scored; dials for effect
-nonlinearity, capacity tightness and outcome noise — the regime maps sweep
-them). `experiments/data_actg.py` loads ACTG Study 175, a real four-arm
-randomized HIV trial where capping the combination-therapy arms necessarily
-binds.
+The Criteo loader falls back to the Hugging Face mirror of `criteo-research-uplift-v2.1` (the
+original S3 bucket began returning 403 in 2026); the derived 10% sample differs from the
+historical file, so row-level numbers will not match pre-2026 runs. Finished cells are cached as
+`results/*_cells/cell_N{n}_seed{s}.csv` and skipped on re-run (`--force` overrides); failures
+leave a `.FAILED` traceback beside the cell.
+</details>
 
-On a SLURM cluster, prefer one job per cell over the local multiprocessing
-pool — cells are independent and resumable, so they map onto an array job and
-scale past a single node's cores:
+<details>
+<summary><b>Deployment conventions (important when comparing numbers)</b></summary>
 
-```bash
-scripts/slurm_sweep.sh criteo "500 1000 2000 4000 8000 16000 32000" 6
-squeue -u "$USER"
-```
+- Sweep and cell harnesses deploy every learned model deterministically: re-solve the dual LP on
+  the *train* scores with capacities shrunk by `--cap-buffer` (0.92 everywhere in the paper),
+  then assign $\arg\max_t (m_t(x) - \mu_t)$. No eval peeking.
+- `experiments/real_queue_experiment.py` instead *samples* from the softmax policy with no
+  buffer; its wait times are not comparable to the sweep numbers.
+- The bilevel convention is that $\mu$ is part of the trained policy: it is never re-solved on
+  eval data.
+</details>
 
-Each array task runs one `(N, seed)` cell and writes its own
-`results/<dataset>_cells/cell_N{N}_seed{s}.csv`; aggregate with
-`experiments.sweep_core.gather_results` once they land (safe to run while jobs
-are still in flight).
+---
 
-The Criteo loader tries the original scikit-uplift S3 bucket first, then the
-Hugging Face mirror of `criteo-research-uplift-v2.1` (the S3 bucket began
-returning 403 in 2026). The discontinued 10% file is derived locally from the
-full one on demand, so `--criteo-variant 10pct` still works — but it is a
-different 10% sample than the historical one, so row-level numbers will not
-match pre-2026 runs.
+<h2 align="center">Honest Limits</h2>
 
-Every sweep cell is resumable: finished cells are cached as
-`results/*_cells/cell_N{n}_seed{s}.csv` and skipped on re-run (`--force`
-overrides). Failures leave a `.FAILED` traceback next to the cell.
+Diabetes 130-US is observational, so its headline rests on ignorability given admission-level
+covariates — the randomised trial and that cohort are deliberate complements, and the win is
+reported in held-out IPW value, not ground truth. On real datasets the queue scores an IPW
+delivered-as-assigned approximation rather than counterfactual outcomes. The regime grid refuted
+our own pre-specified hypothesis and the paper says so. The τ, buffer and capacity constants were
+fixed a priori on the first synthetic configuration and never tuned per dataset; the grids that
+exist (τ over seven values, buffer over [0.70, 1.00]) are sensitivity studies, not selection.
 
-## Deployment conventions (important when comparing numbers)
+---
 
-- **Sweep/cell harnesses** deploy every learned model deterministically:
-  re-solve the dual LP on the *train* scores with capacities shrunk by
-  `--cap-buffer` (default 0.92), then assign
-  $\arg\max_t (m_t(x) - \mu_t^{\mathrm{calibrated}})$
-  (`experiments.common.arms_and_assigner_from_model`). No eval peeking.
-- **`real_queue_experiment.py`** instead *samples* from the softmax policy
-  with no buffer — the report's original stochastic deployment. Its wait
-  times are not comparable to the sweep numbers.
-- The bilevel convention is that $\mu$ is part of the trained policy:
-  never re-solve $\mu$ on eval data (the legacy `run_cell.py` "-mu"
-  variants did exactly that, and are retired).
+<p align="center">
+<sub>Code for an AAAI-27 submission &nbsp;·&nbsp; results in <code>results/</code>, figures in <code>figures/</code>, proofs and ablations in the paper's technical appendix</sub><br>
+<sub>Built with PyTorch, CVXPY (diffcp), SciPy and scikit-learn</sub>
+</p>
