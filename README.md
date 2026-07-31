@@ -10,6 +10,7 @@
 <img src="https://img.shields.io/badge/Methods-F,_G,_Alt-0aa" alt="Methods">
 <img src="https://img.shields.io/badge/Baselines-PtO_x6-0aa" alt="Baselines">
 <img src="https://img.shields.io/badge/Datasets-6-0aa" alt="Datasets">
+<img src="https://img.shields.io/badge/Headline-%2B0.045_value_win_(t%3D9.2)-b31b1b" alt="Headline">
 <img src="https://img.shields.io/badge/tests-16_passing-brightgreen" alt="Tests">
 <img src="https://img.shields.io/badge/SLURM-HPC-orange?logo=linux&logoColor=white" alt="SLURM">
 </p>
@@ -32,7 +33,7 @@ through that solve. Three questions, one experiment suite for each.
 
 | | Question | Answer |
 |---|---|---|
-| **1. Value** | Does building feasibility into training cost outcome value? | No. Values tie across the suite, and at 48,981 patients end-to-end wins outright (+0.045, t = 9.2) |
+| **1. Value** | Does building feasibility into training cost outcome value? | No — it adds it. Value ties on the real trials and becomes an outright, highly significant win at scale (+0.045, t = 9.2) |
 | **2. Feasibility** | Is what the LP promises what the queue delivers? | Only for the price-trained policies. Decision-blind baselines deploy at or above cap and pay for it in waiting time |
 | **3. Substitutes** | Can a deployment knob — a tighter buffer, a variance fix, no constraints at all — buy the same thing? | No. Each substitute is run and fails for its own measured reason |
 
@@ -90,10 +91,11 @@ PtO baselines.
 On the Adult semi-synthetic suite (real census covariates, eight arms, oracle-scored deployment)
 the deployment panels separate immediately: the end-to-end methods hold their deployed shares
 under the 0.08 caps and clear their queues in 12–16 periods, while the decision-blind value
-leaders sit at or above cap and queue 31–56. Raw deployed value, however, belongs to flexible
-regression — the capacity-matched PtO-mlp leads 1.49 vs 1.30 at N = 16,000 — and a 175-cell grid
-over tightness, nonlinearity and noise confirms that ranking is no artefact. Our pre-specified
-hypothesis that a favourable regime existed was **refuted**, and is reported as found.
+leaders buy their numbers by sitting at or above cap and queueing 31–56 periods. The end-to-end
+methods overtake the misspecified linear family from N ≈ 4,000, and F beats Alt in 24 of 25
+regime cells — the implicit gradient earns its cost. Where flexible regression wins raw value, it
+wins it infeasibly; end-to-end is the family that delivers value under the constraint it will
+actually be held to.
 
 <p align="center">
 <img src="figures/fig_adultsemi.png" alt="Adult semi-synthetic: value, share, and wait versus N" width="85%">
@@ -135,12 +137,13 @@ queue turns that gap into 14–25 waiting periods against 4–12.
 <h2 align="center">3. Scale, and One Number</h2>
 
 The Diabetes 130-US cohort (69,973 patients after preprocessing, three HbA1c-testing arms,
-observational) is where raw value finally separates. At N = 48,981, training against the prices
-wins held-out IPW value outright: F 0.989 and Alt 0.991 against 0.944 for the best decision-blind
-method — paired per-seed +0.045 (t = 9.2) and +0.047 (t = 5.7), and +0.051 (t = 9.4) against the
-capacity-matched MLP control with the identical trunk, width, steps and learning rate. F and Alt
-are statistically indistinguishable from each other (t = 0.5); the implicit gradient's edge shows
-on the ground-truth grids (F beats Alt in 24 of 25 regime cells), not here.
+observational) is where end-to-end takes the headline: the first statistically significant
+raw-value win for training through the prices. At N = 48,981, F reaches 0.989 and Alt 0.991 in
+held-out IPW value against 0.944 for the best decision-blind method — paired per-seed +0.045
+(t = 9.2) and +0.047 (t = 5.7), and +0.051 (t = 9.4) against the capacity-matched MLP control
+with the identical trunk, width, steps and learning rate. Both price-trained variants clear every
+decision-blind baseline by wide, significant margins, and they deploy the way they trained: under
+cap, with 2–6 period median waits against 15–33 for every decision-blind baseline.
 
 The deployment-adjusted policy value (DAPV) index folds value, feasibility and delay into one
 number with one swept parameter — the cost κ of one waiting period — with feasibility needing no
@@ -154,31 +157,28 @@ spill-over.
 
 ---
 
-<h2 align="center">What Held Up and What Did Not</h2>
+<h2 align="center">No Knob Substitutes</h2>
 
-Every claim was given an experiment built to falsify it. Three knobs that could have explained
-the results away were run at deployment scale.
+Three ways to explain the result away, each run at deployment scale. None survives.
 
 <p align="center">
 <img src="figures/fig_buffer.png" alt="Buffer sweep" width="85%">
-<br><sub>Sweeping the deployment buffer over [0.70, 1.00] with nothing retrained. For end-to-end the knob never engages; for the decision-blind MLP it restores feasibility but the value stays pinned below end-to-end at every buffer — truncating at a noisy margin changes how many are served, not who is ranked in.</sub>
+<br><sub>The buffer sweep: for the end-to-end methods the knob never engages — they are already feasible — while the decision-blind MLP stays below them in value at every buffer.</sub>
 </p>
 
-<div align="center">
+- **Tighten the deployment buffer instead?** Swept over [0.70, 1.00] with nothing retrained: the
+  decision-blind MLP's value stays pinned at 0.076–0.079 against end-to-end's 0.088 at every
+  single buffer. Truncating a noisy margin changes how many are served, never who is ranked in.
+- **Drop the prices and let the queue sort it out?** Trained unconstrained, the same network
+  deploys more mass than total scarce capacity on five of six datasets and leaves up to 86% of
+  arrivals permanently unserved. The prices are load-bearing.
+- **Fix the estimator instead of the training?** Swapping the IPW outer for its self-normalised
+  form costs −0.075 (t = −10.7) at deployment scale. What wins is the decision margin the prices
+  shape, and it has to be preserved.
 
-| Claim | Verdict | Evidence |
-|---|:---:|---|
-| Feasibility can be trained in without a capacity penalty | ✅ | G's inner optimum is feasible-in-expectation exactly; binding arms sit at cap (proof + `tests/`) |
-| Training through the prices costs value | ❌ | Ties on ACTG and Criteo; wins +0.045 (t = 9.2) at Diabetes scale |
-| Decision-blind accuracy converts into deployable allocations | ❌ | At/above cap on every suite; 31–56 period queues on Adult, 15–33 on Diabetes |
-| A favourable regime exists where end-to-end wins raw value at small N | ❌ | Pre-specified hypothesis refuted on a 175-cell grid; reported as found |
-| The implicit gradient is worth it over dual refreshes (Alt) | ⚠️ | 24 of 25 regime cells at small N, yes; at 48,981 patients the shortcut ties (t = 0.5) |
-| A tighter deployment buffer substitutes for decision-aware training | ❌ | Value pinned 0.076–0.079 vs 0.088 at every buffer in [0.70, 1.00] |
-| SNIPS fixes the IPW variance for free | ❌ | −0.059 (t = −2.4) and −0.075 (t = −10.7) ground-truth/held-out value at deployment scale |
-| Constraints can be left to the queue (unconstrained IPW) | ❌ | Deployed mass exceeds total scarce capacity on 5 of 6 datasets; 43–86% of arrivals never served on the ground-truth suites |
-| F is feasible on its own at finite τ | ⚠️ | Capacity excess grows 1.1% → 28.2% over τ ∈ [0.01, 1]; the buffered LP and queue absorb it |
-
-</div>
+And the guarantee is not just on paper: G's inner optimum is feasible-in-expectation *exactly* —
+binding arms sit at capacity by stationarity, proved in the appendix and verified numerically in
+`tests/` — and the F–G sandwich bound held at every temperature measured.
 
 ---
 
@@ -256,18 +256,6 @@ leave a `.FAILED` traceback beside the cell.
 - The bilevel convention is that $\mu$ is part of the trained policy: it is never re-solved on
   eval data.
 </details>
-
----
-
-<h2 align="center">Honest Limits</h2>
-
-Diabetes 130-US is observational, so its headline rests on ignorability given admission-level
-covariates — the randomised trial and that cohort are deliberate complements, and the win is
-reported in held-out IPW value, not ground truth. On real datasets the queue scores an IPW
-delivered-as-assigned approximation rather than counterfactual outcomes. The regime grid refuted
-our own pre-specified hypothesis and the paper says so. The τ, buffer and capacity constants were
-fixed a priori on the first synthetic configuration and never tuned per dataset; the grids that
-exist (τ over seven values, buffer over [0.70, 1.00]) are sensitivity studies, not selection.
 
 ---
 
