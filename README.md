@@ -20,7 +20,7 @@ $$\hat V_{\mathrm{IPW}}(\theta) = \frac{1}{N}\sum_{i=1}^N \pi_{\theta,T_i}(X_i)\
 
 over the softmax dual-price policy class
 
-$$\pi_{\theta,t}(x) = \operatorname{softmax}_t\!\big((m_{t,\theta}(x)-\mu_{\theta,t})/\tau\big),$$
+$$\pi_{\theta,t}(x) = \mathrm{softmax}_t\big((m_{t,\theta}(x)-\mu_{\theta,t})/\tau\big),$$
 
 where the shadow prices $\mu_\theta \ge 0$ solve an inner
 capacity-pricing problem for the current scores $M_\theta = (m_{t,\theta}(X_i))_{i,t}$.
