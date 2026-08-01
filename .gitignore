@@ -25,3 +25,8 @@ logs/
 *.lock
 *.png
 *.zip
+# never publish paper drafts, logs, or downloaded data
+papers/
+edits.md
+logs/
+data/
