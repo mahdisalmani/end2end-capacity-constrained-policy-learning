@@ -260,6 +260,6 @@ leave a `.FAILED` traceback beside the cell.
 ---
 
 <p align="center">
-<sub>Code for an AAAI-27 submission &nbsp;·&nbsp; results in <code>results/</code>, figures in <code>figures/</code>, proofs and ablations in the paper's technical appendix</sub><br>
+<sub>Code for an AAAI-27 submission &nbsp;·&nbsp; figures in <code>figures/</code>, full results and proofs in the paper and its technical appendix</sub><br>
 <sub>Built with PyTorch, CVXPY (diffcp), SciPy and scikit-learn</sub>
 </p>
