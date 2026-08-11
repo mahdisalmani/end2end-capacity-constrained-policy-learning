@@ -18,11 +18,12 @@ PREPARE_KW = {
     "nonnested": {"steps": 1000},
     "diabetes": {"steps": 500},
     "mechanism": {"steps": 3000},
+    "dglmatch": {"steps": 800},
 }
 
 DEPLOY_N = {"adultsemi": 16000, "actg": 1497, "criteo": 32000,
             "lalonde": 1873, "nonnested": 4000, "diabetes": 48000,
-            "mechanism": 32000}
+            "mechanism": 32000, "dglmatch": 8000}
 
 
 def get_prepare(dataset, N, seed):
