@@ -15,7 +15,7 @@
 <img src="https://img.shields.io/badge/SLURM-HPC-orange?logo=linux&logoColor=white" alt="SLURM">
 </p>
 
-<p align="center"><sub>Code for the AAAI-27 submission <i>Differentiating Through Dual Prices: End-to-End Policy Learning Under Capacity Constraints</i>.</sub></p>
+<p align="center"><sub>Code for the a confrance submission <i>Differentiating Through Dual Prices: End-to-End Policy Learning Under Capacity Constraints</i>.</sub></p>
 
 ---
 
