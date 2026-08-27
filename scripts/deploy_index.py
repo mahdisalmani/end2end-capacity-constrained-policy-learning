@@ -43,16 +43,39 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-DATASETS = ["adultsemi", "actg", "diabetes", "criteo", "nonnested"]
-ORACLE = {"adultsemi", "nonnested"}     # ground-truth deployed value exists
+DATASETS = ["adultsemi", "actg", "diabetes", "criteo", "nonnested", "mechanism"]
+ORACLE = {"adultsemi", "nonnested", "mechanism"}   # ground-truth deployed value exists
 METHODS = ["F", "Gs", "Alt", "S2-linear", "S2-lasso", "S2-tree", "S2-knn",
            "S2-dr", "S2-mlp", "random", "treat_all"]
 E2E = ("F", "Gs", "Alt")
 KAPPAS = [0.0] + list(np.round(np.geomspace(1e-4, 0.2, 45), 6))
 
 
+_V0_CACHE = {}
+if os.path.exists("results/deploy_index.json"):
+    try:
+        _V0_CACHE = json.load(open("results/deploy_index.json")).get("v0", {})
+    except Exception:
+        _V0_CACHE = {}
+
+
 def control_value(ds):
-    """V0: value of no intervention, on the eval split."""
+    """V0: value of no intervention, on the eval split.
+
+    Reuses the previously computed value when available. The dataset loaders pull
+    in cvxpy transitively, which cannot be imported under numpy < 2, so recomputing
+    every V0 would fail for a value that never changes.
+    """
+    if ds in _V0_CACHE:
+        return float(_V0_CACHE[ds])
+    if ds == "mechanism":
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_dm", "experiments/data_mechanism.py")
+        dm = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(dm)                  # numpy only, no cvxpy
+        _, ev, _ = dm.generate_mechanism(4000, 0)
+        return float(ev["Y_pot"][:, 0].mean())
     import torch
     torch.set_default_dtype(torch.float64)
     if ds == "adultsemi":
@@ -62,6 +85,10 @@ def control_value(ds):
     if ds == "nonnested":
         from experiments.run_cell_nonnested import load_or_build_eval_cache
         ev = load_or_build_eval_cache()
+        return float(ev["Y_pot"][:, 0].mean())
+    if ds == "mechanism":
+        from experiments.data_mechanism import generate_mechanism
+        _, ev, _ = generate_mechanism(4000, 0)
         return float(ev["Y_pot"][:, 0].mean())
     if ds == "actg":
         from experiments.data_actg import load_actg
